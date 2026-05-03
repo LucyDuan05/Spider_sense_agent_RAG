@@ -84,7 +84,7 @@ def main():
     args = get_args()
     os.makedirs(args.save_path, exist_ok=True)
 
-    checkpoint = torch.load(args.load_path, map_location="cpu")
+    checkpoint = torch.load(args.load_path, map_location="cpu", weights_only=False)
     input_channels = checkpoint.get("input_channels", args.input_channels if args.input_channels is not None else 1)
     base_channels = checkpoint.get("base_channels", args.base_channels if args.base_channels is not None else 64)
     hidden_dim = checkpoint.get("hidden_dim", args.hidden_dim if args.hidden_dim is not None else 512)

@@ -71,13 +71,17 @@ def get_args():
 def main():
 
     args = get_args()
-    if not os.path.isdir(args.feature_dir):
-        raise FileNotFoundError("Feature directory not found: {}".format(args.feature_dir))
+    train_feature_dir = os.path.join(args.feature_dir, "train")
+    if not os.path.isdir(train_feature_dir):
+        raise FileNotFoundError("Train feature directory not found: {}".format(train_feature_dir))
     os.makedirs(args.save_path, exist_ok=True)
 
-    for class_no in os.listdir(args.feature_dir):
+    for class_no in os.listdir(train_feature_dir):
+        class_path = os.path.join(train_feature_dir, class_no)
+        if not os.path.isdir(class_path):
+            continue
         print("Class index ",class_no)
-        distance_distribution = compute_distances(class_no,args.MAV_path,args.feature_dir)
+        distance_distribution = compute_distances(class_no,args.MAV_path,train_feature_dir)
         np.savez(os.path.join(args.save_path,class_no+".npz"), **distance_distribution)
 
 if __name__ == "__main__":
