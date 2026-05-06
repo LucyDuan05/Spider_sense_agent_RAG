@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Windows/System32/bash.exe *)",
+      "Bash(git add *)",
+      "Read(///wsl.localhost/Ubuntu-24.04/home/mihu/CROSR-main/web-frontend/**)"
+    ]
+  }
+}

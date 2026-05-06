@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>OpenMax IDS Pipeline</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="openmax-ids-pipeline">OpenMax IDS Pipeline</h1>
+<p>Full workflow from raw data to AUROC results. Run from <code>/home/mihu/CROSR-main</code>.</p>
+<hr>
+<h2 id="step-0-compile-libmr-first-time-only">Step 0: Compile libMR (first time only)</h2>
+<pre><code class="language-bash"><span class="hljs-built_in">cd</span> /home/mihu/CROSR-main/libMR
+<span class="hljs-built_in">chmod</span> +x compile.sh
+./compile.sh
+</code></pre>
+<hr>
+<h2 id="step-1-data-preparation">Step 1: Data Preparation</h2>
+<p>Each dataset has a dedicated script. Run with <code>openmax</code> env.</p>
+<pre><code class="language-bash">conda activate openmax
+
+<span class="hljs-comment"># NSL-KDD</span>
+python prepare_nslkdd_1d.py
+
+<span class="hljs-comment"># CICIDS-2017</span>
+python prepare_cicids_1d.py
+
+<span class="hljs-comment"># CICIDS-2018</span>
+python prepare_cicids2018_1d.py
+
+<span class="hljs-comment"># UNSW-NB15</span>
+python prepare_unsw_nb15_1d.py
+python make_unsw_val_split.py   <span class="hljs-comment"># creates val_known.npz (20% stratified split)</span>
+</code></pre>
+<p>Output: <code>processed_&lt;dataset&gt;/train_known.npz</code>, <code>val_known.npz</code>, <code>open_set.npz</code></p>
+<hr>
+<h2 id="step-2-train-dhrnet-1d">Step 2: Train DHRNet-1D</h2>
+<pre><code class="language-bash">conda activate openmax
+python train_net_1d.py \
+    --dataset &lt;dataset_name&gt; \
+    --save_path save_models/&lt;dataset_name&gt;/best.pth
+</code></pre>
+<p>Checkpoint saved to <code>save_models/&lt;dataset&gt;_1d/best.pth</code>.</p>
+<hr>
+<h2 id="step-3-extract-features">Step 3: Extract Features</h2>
+<pre><code class="language-bash">conda activate openmax
+python get_model_features_1d.py \
+    --train_path processed_&lt;dataset&gt;/train_known.npz \
+    --val_path   processed_&lt;dataset&gt;/val_known.npz \
+    --open_path  processed_&lt;dataset&gt;/open_set.npz \
+    --save_path  saved_features/&lt;dataset&gt;_1d \
+    --load_path  save_models/&lt;dataset&gt;_1d/best.pth
+</code></pre>
+<p>Output: <code>saved_features/&lt;dataset&gt;_1d/{train,val,open_set}/&lt;class&gt;/&lt;sample&gt;.npy</code></p>
+<hr>
+<h2 id="step-4-compute-mavs">Step 4: Compute MAVs</h2>
+<pre><code class="language-bash">conda activate openmax
+python MAV_Compute.py \
+    --feature_path saved_features/&lt;dataset&gt;_1d/train \
+    --save_path    saved_MAVs/&lt;dataset&gt;_1d
+</code></pre>
+<hr>
+<h2 id="step-5-compute-distance-scores">Step 5: Compute Distance Scores</h2>
+<pre><code class="language-bash">conda activate openmax
+python compute_distances.py \
+    --feature_path saved_features/&lt;dataset&gt;_1d/train \
+    --MAV_path     saved_MAVs/&lt;dataset&gt;_1d \
+    --save_path    saved_distance_scores/&lt;dataset&gt;_1d
+</code></pre>
+<hr>
+<h2 id="step-6-openmax-parameter-scan">Step 6: OpenMax Parameter Scan</h2>
+<p>Loads all features into RAM once, then sweeps 144 parameter combinations in memory.</p>
+<pre><code class="language-bash">PYTHONPATH=/home/mihu/CROSR-main/libMR:<span class="hljs-variable">$PYTHONPATH</span> \
+conda run -n openmax_py2 python fast_scan.py \
+    --MAV_path             saved_MAVs/&lt;dataset&gt;_1d \
+    --distance_scores_path saved_distance_scores/&lt;dataset&gt;_1d \
+    --feature_dir          saved_features/&lt;dataset&gt;_1d \
+    --tail_sizes   5,10,15,20,30,50 \
+    --alpha_ranks  1,2,3,4,5,6,8,10 \
+    --distance_types eucos,euclidean,cosine \
+    --top_k 5 | <span class="hljs-built_in">tee</span> /tmp/scan_&lt;dataset&gt;.txt
+</code></pre>
+<hr>
+<h2 id="step-7-patch-apppy-with-real-auroc-values">Step 7: Patch <a href="http://app.py">app.py</a> with Real AUROC Values</h2>
+<pre><code class="language-bash">conda activate openmax
+python extract_best_auroc.py \
+    --cicids     /tmp/scan_cicids.txt \
+    --cicids2018 /tmp/scan_cicids2018.txt \
+    --unsw       /tmp/scan_unsw.txt
+</code></pre>
+<p>Updates <code>web-frontend/backend/app.py</code> and saves <code>best_auroc_results.json</code>.</p>
+<hr>
+<h2 id="run-full-pipeline-all-datasets">Run Full Pipeline (All Datasets)</h2>
+<pre><code class="language-bash">bash run_openmax_pipeline.sh
+</code></pre>
+<p>This script runs Steps 3–7 for all datasets (assumes models are already trained).</p>
+<hr>
+<h2 id="current-results">Current Results</h2>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>AUROC</th>
+<th>Best Params</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NSL-KDD</td>
+<td>0.9648</td>
+<td>pre-computed</td>
+</tr>
+<tr>
+<td>CICIDS-2017</td>
+<td>0.9651</td>
+<td>tail=30, alpha=3, euclidean</td>
+</tr>
+<tr>
+<td>CICIDS-2018</td>
+<td>0.4613</td>
+<td>tail=5, alpha=1, euclidean</td>
+</tr>
+<tr>
+<td>UNSW-NB15</td>
+<td>0.8949</td>
+<td>tail=50, alpha=6, cosine</td>
+</tr>
+</tbody>
+</table>
+
+            <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+            
+        </body>
+        </html>

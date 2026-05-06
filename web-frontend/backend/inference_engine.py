@@ -262,6 +262,7 @@ class IDSInferenceEngine:
                 'prediction': result['prediction'],
                 'timestamp': now,
                 'packet_length': len(pkt),
+                'src_port': int(pkt[TCP].sport if pkt.haslayer(TCP) else pkt[UDP].sport if pkt.haslayer(UDP) else 0),
                 'dst_port': int(pkt[TCP].dport if pkt.haslayer(TCP) else pkt[UDP].dport if pkt.haslayer(UDP) else 0)
             }
             self.recent_results.insert(0, self.latest_flow_info.copy())
@@ -269,6 +270,80 @@ class IDSInferenceEngine:
                 self.recent_results.pop()
 
         print(f"[AI Alert] {self.latest_prediction} | {pkt[IP].src} -> {pkt[IP].dst}")
+
+    def _predict_normalized(self, x_norm):
+        """Run inference on already-normalized features (skips scaler step)."""
+        input_tensor = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+        with torch.no_grad():
+            logits, _, _ = self.model(input_tensor)
+            probs = torch.softmax(logits, dim=1).squeeze(0)
+            confidence, pred = torch.max(probs, dim=0)
+        label = self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
+        if float(confidence.item()) < 0.65:
+            label = 'UNKNOWN'
+        return {'prediction': label, 'confidence': float(confidence.item())}
+
+    def inject_attack_packets(self, attack_type, count=20):
+        """Inject real feature vectors directly into recent_results.
+
+        Known attacks (val_known.npz): model should classify correctly.
+        'Unknown Attack' (open_set.npz): model should output UNKNOWN — demonstrating open-set recognition.
+        """
+        import time
+
+        OPEN_SET_KEY = 'Unknown Attack'
+
+        if attack_type == OPEN_SET_KEY:
+            # Load open-set (novel/unseen attack) samples
+            if not hasattr(self, '_open_set_data'):
+                path = os.path.join(PROJECT_ROOT, 'processed_cicids', 'open_set.npz')
+                d = np.load(path, allow_pickle=True)
+                self._open_set_data = {'x': d['x'], 'y': d['y'], 'labels': [str(l) for l in d['label_names'].tolist()]}
+            samples = self._open_set_data['x']
+            indices = np.random.choice(len(samples), size=min(count, len(samples)), replace=False)
+            true_labels = [self._open_set_data['labels'][self._open_set_data['y'][i]] for i in indices]
+        else:
+            # Load known-class samples
+            if not hasattr(self, '_val_data'):
+                val_path = os.path.join(PROJECT_ROOT, 'processed_cicids', 'val_known.npz')
+                val = np.load(val_path, allow_pickle=True)
+                self._val_data = {'x': val['x'], 'y': val['y'], 'labels': [str(l) for l in val['label_names'].tolist()]}
+            labels = self._val_data['labels']
+            if attack_type not in labels:
+                print(f"[Inject] Unknown attack type: {attack_type}. Available: {labels}")
+                return
+            class_idx = labels.index(attack_type)
+            mask = self._val_data['y'] == class_idx
+            samples = self._val_data['x'][mask]
+            indices = np.random.choice(len(samples), size=min(count, len(samples)), replace=False)
+            true_labels = [attack_type] * len(indices)
+
+        print(f"[Inject] Injecting {len(indices)} '{attack_type}' feature vectors")
+
+        for i, idx in enumerate(indices):
+            result = self._predict_normalized(samples[idx])
+            now = datetime.now().isoformat()
+            flow_info = {
+                'src_ip': '127.0.0.1',
+                'dst_ip': '127.0.0.1',
+                'protocol': 'TCP',
+                'confidence': result['confidence'],
+                'prediction': result['prediction'],
+                'timestamp': now,
+                'packet_length': 100,
+                'src_port': 55555,
+                'dst_port': 80,
+                'true_label': true_labels[i],  # For debug/logging only
+            }
+            with self.lock:
+                self.total_count += 1
+                self.latest_prediction = result['prediction']
+                self.latest_flow_info = flow_info.copy()
+                self.recent_results.insert(0, flow_info)
+                if len(self.recent_results) > 50:
+                    self.recent_results.pop()
+            print(f"[Inject] {i+1}/{len(indices)} true={true_labels[i]} -> pred={result['prediction']} ({result['confidence']:.2f})")
+            time.sleep(0.3)  # 1 packet per 0.3s, interleaves naturally with real traffic
 
     def run_detection(self, interface='eth0'):
         self.is_running = True

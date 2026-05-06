@@ -1,0 +1,46 @@
+{
+  "cicids": {
+    "auroc": 0.9651,
+    "aupr_out": 0.9482,
+    "aupr_in": 0.9759,
+    "fpr95": 0.1243,
+    "precision_ood": 0.8937,
+    "recall_ood": 0.9357,
+    "balanced_accuracy": 0.921,
+    "overall_accuracy": 0.9197,
+    "best_params": {"tail": 30, "alpha": 3, "distance": "euclidean"}
+  },
+  "cicids2018": {
+    "auroc": 0.4613,
+    "aupr_out": 0.3446,
+    "aupr_in": 0.7132,
+    "fpr95": 0.71,
+    "precision_ood": 0.4665,
+    "recall_ood": 0.9957,
+    "balanced_accuracy": 0.6318,
+    "overall_accuracy": 0.5527,
+    "best_params": {"tail": 5, "alpha": 1, "distance": "euclidean"}
+  },
+  "nslkdd": {
+    "auroc": 0.7587,
+    "aupr_out": 0.2584,
+    "aupr_in": 0.9561,
+    "fpr95": 0.6873,
+    "precision_ood": 0.2823,
+    "recall_ood": 0.7835,
+    "balanced_accuracy": 0.7417,
+    "overall_accuracy": 0.7108,
+    "best_params": {"tail": 50, "alpha": 1, "distance": "euclidean"}
+  },
+  "unsw_nb15": {
+    "auroc": 0.8949,
+    "aupr_out": 0.6106,
+    "aupr_in": 0.9682,
+    "fpr95": 0.3627,
+    "precision_ood": 0.5843,
+    "recall_ood": 0.8718,
+    "balanced_accuracy": 0.8396,
+    "overall_accuracy": 0.8227,
+    "best_params": {"tail": 50, "alpha": 6, "distance": "cosine"}
+  }
+}

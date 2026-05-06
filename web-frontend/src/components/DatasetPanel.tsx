@@ -27,40 +27,40 @@ const DATASET_RESULTS: Record<string, DatasetInfo> = {
     description: 'CICIDS2017 Network Intrusion Detection Dataset',
     knownClasses: 6,
     totalSamples: 25000,
-    auroc: 0.8986,
-    precision: 0.85,
-    recall: 0.87,
-    f1: 0.86
+    auroc: 0.9651,
+    precision: 0.8937,
+    recall: 0.9357,
+    f1: 0.9143
   },
   'cicids2018': {
     name: 'CICIDS 2018',
     description: 'CICIDS2018 Network Intrusion Detection Dataset',
     knownClasses: 8,
     totalSamples: 30000,
-    auroc: 0.9123,
-    precision: 0.88,
-    recall: 0.89,
-    f1: 0.88
+    auroc: 0.4613,
+    precision: 0.4665,
+    recall: 0.9957,
+    f1: 0.6344
   },
   'nslkdd': {
     name: 'NSL-KDD',
     description: 'NSL-KDD Network Intrusion Detection Dataset',
     knownClasses: 5,
     totalSamples: 20000,
-    auroc: 0.8754,
-    precision: 0.82,
-    recall: 0.84,
-    f1: 0.83
+    auroc: 0.7587,
+    precision: 0.2823,
+    recall: 0.7835,
+    f1: 0.4148
   },
   'unsw_nb15': {
     name: 'UNSW-NB15',
     description: 'UNSW-NB15 Network Intrusion Detection Dataset',
     knownClasses: 10,
     totalSamples: 35000,
-    auroc: 0.9234,
-    precision: 0.90,
-    recall: 0.91,
-    f1: 0.90
+    auroc: 0.8949,
+    precision: 0.5843,
+    recall: 0.8718,
+    f1: 0.6997
   }
 };
 
@@ -219,7 +219,7 @@ const DatasetPanel: React.FC = () => {
               <LineChart data={metricsChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="name" tick={{ fill: '#888' }} />
-                <YAxis domain={[70, 100]} tick={{ fill: '#888' }} />
+                <YAxis domain={[0, 100]} tick={{ fill: '#888' }} />
                 <Tooltip
                   contentStyle={{ background: '#1a1a2e', border: '1px solid #333' }}
                   labelStyle={{ color: '#fff' }}

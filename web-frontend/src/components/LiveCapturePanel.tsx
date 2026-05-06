@@ -10,9 +10,13 @@ interface PacketItem {
   length: number
   prediction: string
   confidence: number
+  srcPort?: number  // Added to identify injected packets (port 55555)
 }
 
-const INTERFACES = ['eth0', 'wlan0', 'any', 'en0']
+const INTERFACES = ['eth0', 'wlan0', 'any', 'en0', 'lo']
+
+const ATTACK_TYPES = ['DDoS', 'PortScan', 'FTP-Patator', 'SSH-Patator', 'DoS Hulk', 'Unknown Attack'] as const
+type AttackType = typeof ATTACK_TYPES[number]
 
 function predictionClass(prediction: string): string {
   if (prediction === 'BENIGN') return 'normal'
@@ -28,6 +32,9 @@ const LiveCapturePanel: React.FC = () => {
   const [message, setMessage] = useState('等待开始...')
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({ total: 0, normal: 0, anomaly: 0, unknown: 0 })
+  const [injecting, setInjecting] = useState<AttackType | null>(null)
+  const [injectMessage, setInjectMessage] = useState<string>('')
+  const [showOnlyInjected, setShowOnlyInjected] = useState(false)
 
   const nextIdRef = useRef(1)
   // Tracks total packet count seen from backend to detect new packets
@@ -71,6 +78,7 @@ const LiveCapturePanel: React.FC = () => {
               length: flow.packet_length ?? 0,
               prediction: flow.prediction ?? 'UNKNOWN',
               confidence: flow.confidence ?? 0,
+              srcPort: flow.src_port ?? 0,
             }))
 
             setPackets(prev => [...newPackets, ...prev].slice(0, 100))
@@ -127,6 +135,27 @@ const LiveCapturePanel: React.FC = () => {
     }
   }
 
+  const handleInject = async (attackType: AttackType) => {
+    setInjectMessage('')
+    setInjecting(attackType)
+    try {
+      const resp = await axios.post('/api/capture/inject', {
+        attack_type: attackType,
+        count: 20,
+      })
+      if (resp.data?.success) {
+        setInjectMessage(resp.data.message ?? `已开始注入 ${attackType}`)
+      } else {
+        setInjectMessage(`注入失败: ${resp.data?.error ?? 'unknown'}`)
+      }
+    } catch (err: any) {
+      setInjectMessage(`注入请求失败: ${err?.response?.data?.error ?? err?.message ?? 'unknown'}`)
+    } finally {
+      // Re-enable button after 3s (100 packets @ 50/sec = 2s)
+      setTimeout(() => setInjecting(null), 3000)
+    }
+  }
+
   return (
     <div>
       <h2 className="panel-title">
@@ -173,6 +202,70 @@ const LiveCapturePanel: React.FC = () => {
         </div>
       )}
 
+      {/* Attack Simulator */}
+      <div className="attack-simulator" style={{
+        marginBottom: 20,
+        padding: '16px 18px',
+        background: 'rgba(255,193,7,0.05)',
+        border: '1px solid rgba(255,193,7,0.2)',
+        borderRadius: 8,
+      }}>
+        <h3 style={{ color: '#ffc107', margin: '0 0 12px 0', fontSize: 15 }}>
+          🎯 Attack Simulator
+        </h3>
+        <div style={{
+          color: '#ffc107',
+          fontSize: 12,
+          marginBottom: 12,
+          padding: '8px 10px',
+          background: 'rgba(255,193,7,0.08)',
+          borderRadius: 4,
+        }}>
+          💡 Tips: 点击 Start Capture 后可注入攻击样本。已知攻击（DDoS等）→ 模型正确分类；Unknown Attack 注入模型从未见过的攻击类型（Bot/Heartbleed等）→ 模型输出 UNKNOWN，体现开放集识别能力。
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+          {ATTACK_TYPES.map(attack => {
+            const enabled = isCapturing && injecting === null
+            const isUnknown = attack === 'Unknown Attack'
+            return (
+              <button
+                key={attack}
+                className="btn btn-secondary"
+                disabled={!enabled}
+                onClick={() => handleInject(attack)}
+                style={{
+                  opacity: enabled ? 1 : 0.4,
+                  cursor: enabled ? 'pointer' : 'not-allowed',
+                  fontSize: 13,
+                  padding: '6px 14px',
+                  background: isUnknown ? 'rgba(138,43,226,0.2)' : undefined,
+                  border: isUnknown ? '1px solid #8a2be2' : undefined,
+                  color: isUnknown ? '#c38aff' : undefined,
+                }}
+              >
+                {injecting === attack ? `注入中... ${attack}` : (isUnknown ? `❓ ${attack}` : `💥 ${attack}`)}
+              </button>
+            )
+          })}
+        </div>
+        {injectMessage && (
+          <div style={{ color: '#00d4ff', fontSize: 12, marginTop: 8 }}>
+            {injectMessage}
+          </div>
+        )}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,193,7,0.2)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#ffc107' }}>
+            <input
+              type="checkbox"
+              checked={showOnlyInjected}
+              onChange={(e) => setShowOnlyInjected(e.target.checked)}
+              style={{ cursor: 'pointer' }}
+            />
+            <span>仅显示注入的包（源端口 55555）</span>
+          </label>
+        </div>
+      </div>
+
       {/* Stats */}
       <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
         <div className="metric-card">
@@ -194,7 +287,10 @@ const LiveCapturePanel: React.FC = () => {
       </div>
 
       {/* Packet Table */}
-      <h3 style={{ color: '#fff', marginBottom: 12 }}>Recent Detection Results</h3>
+      <h3 style={{ color: '#fff', marginBottom: 12 }}>
+        Recent Detection Results
+        {showOnlyInjected && <span style={{ color: '#ffc107', fontSize: 13, marginLeft: 10 }}>(仅显示注入的包)</span>}
+      </h3>
       <div className="packet-list">
         {packets.length === 0 ? (
           <div style={{ color: '#666', textAlign: 'center', padding: 40 }}>
@@ -212,28 +308,40 @@ const LiveCapturePanel: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {packets.map(pkt => (
-                <tr
-                  key={pkt.id}
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                  className="packet-item-row"
-                >
-                  <td style={{ padding: '8px 12px', color: '#888', whiteSpace: 'nowrap' }}>
-                    {pkt.timestamp.split('T')[1]?.split('.')[0] ?? pkt.timestamp}
-                  </td>
-                  <td style={{ padding: '8px 12px', color: '#00d4ff' }}>{pkt.srcIp}</td>
-                  <td style={{ padding: '8px 12px', color: '#00d4ff' }}>{pkt.dstIp}</td>
-                  <td style={{ padding: '8px 12px', color: '#e0e0e0' }}>{pkt.protocol}</td>
-                  <td style={{ padding: '8px 12px' }}>
-                    <span className={`packet-type ${predictionClass(pkt.prediction)}`}>
-                      {pkt.prediction}
-                    </span>
-                  </td>
-                  <td style={{ padding: '8px 12px', color: '#888' }}>
-                    {(pkt.confidence * 100).toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
+              {packets
+                .filter(pkt => !showOnlyInjected || pkt.srcPort === 55555)
+                .map(pkt => {
+                  const isInjected = pkt.srcPort === 55555
+                  return (
+                    <tr
+                      key={pkt.id}
+                      style={{
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        background: isInjected ? 'rgba(255,193,7,0.08)' : 'transparent',
+                        borderLeft: isInjected ? '3px solid #ffc107' : 'none',
+                      }}
+                      className="packet-item-row"
+                    >
+                      <td style={{ padding: '8px 12px', color: '#888', whiteSpace: 'nowrap' }}>
+                        {pkt.timestamp.split('T')[1]?.split('.')[0] ?? pkt.timestamp}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#00d4ff' }}>
+                        {pkt.srcIp}
+                        {isInjected && <span style={{ color: '#ffc107', fontSize: 11, marginLeft: 4 }}>:55555</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#00d4ff' }}>{pkt.dstIp}</td>
+                      <td style={{ padding: '8px 12px', color: '#e0e0e0' }}>{pkt.protocol}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <span className={`packet-type ${predictionClass(pkt.prediction)}`}>
+                          {pkt.prediction}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#888' }}>
+                        {(pkt.confidence * 100).toFixed(1)}%
+                      </td>
+                    </tr>
+                  )
+                })}
             </tbody>
           </table>
         )}

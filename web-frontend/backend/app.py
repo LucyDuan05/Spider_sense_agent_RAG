@@ -17,41 +17,68 @@ CORS(app)
 RESULTS_DIR = "./saved_distance_scores"
 
 # Pre-loaded dataset results
+# All metrics from evaluate_openmax.py using best OpenMax parameters per dataset.
+# precision/recall/f1 are computed at the best balanced-accuracy threshold.
+# f1 = 2 * precision * recall / (precision + recall)
 DATASET_RESULTS = {
     'cicids': {
         'name': 'CICIDS 2017',
-        'auroc': 0.8986,
-        'precision': 0.85,
-        'recall': 0.87,
-        'f1': 0.86,
+        'auroc': 0.9651,
+        'aupr_out': 0.9482,
+        'aupr_in': 0.9759,
+        'fpr95': 0.1243,
+        'precision': 0.8937,
+        'recall': 0.9357,
+        'f1': round(2 * 0.8937 * 0.9357 / (0.8937 + 0.9357), 4),
+        'balanced_accuracy': 0.9210,
+        'overall_accuracy': 0.9197,
+        'best_params': {'tail': 30, 'alpha': 3, 'distance': 'euclidean'},
         'knownClasses': 6,
         'totalSamples': 25000
     },
     'cicids2018': {
         'name': 'CICIDS 2018',
-        'auroc': 0.9123,
-        'precision': 0.88,
-        'recall': 0.89,
-        'f1': 0.88,
+        'auroc': 0.4613,
+        'aupr_out': 0.3446,
+        'aupr_in': 0.7132,
+        'fpr95': 0.7100,
+        'precision': 0.4665,
+        'recall': 0.9957,
+        'f1': round(2 * 0.4665 * 0.9957 / (0.4665 + 0.9957), 4),
+        'balanced_accuracy': 0.6318,
+        'overall_accuracy': 0.5527,
+        'best_params': {'tail': 5, 'alpha': 1, 'distance': 'euclidean'},
         'knownClasses': 8,
         'totalSamples': 30000
     },
     'nslkdd': {
         'name': 'NSL-KDD',
-        'auroc': 0.8754,
-        'precision': 0.82,
-        'recall': 0.84,
-        'f1': 0.83,
+        'auroc': 0.7587,
+        'aupr_out': 0.2584,
+        'aupr_in': 0.9561,
+        'fpr95': 0.6873,
+        'precision': 0.2823,
+        'recall': 0.7835,
+        'f1': round(2 * 0.2823 * 0.7835 / (0.2823 + 0.7835), 4),
+        'balanced_accuracy': 0.7417,
+        'overall_accuracy': 0.7108,
+        'best_params': {'tail': 50, 'alpha': 1, 'distance': 'euclidean'},
         'knownClasses': 5,
         'totalSamples': 20000
     },
     'unsw_nb15': {
         'name': 'UNSW-NB15',
-        'auroc': 0.9234,
-        'precision': 0.90,
-        'recall': 0.91,
-        'f1': 0.90,
-        'knownClasses': 10,
+        'auroc': 0.8949,
+        'aupr_out': 0.6106,
+        'aupr_in': 0.9682,
+        'fpr95': 0.3627,
+        'precision': 0.5843,
+        'recall': 0.8718,
+        'f1': round(2 * 0.5843 * 0.8718 / (0.5843 + 0.8718), 4),
+        'balanced_accuracy': 0.8396,
+        'overall_accuracy': 0.8227,
+        'best_params': {'tail': 50, 'alpha': 6, 'distance': 'cosine'},
+        'knownClasses': 6,
         'totalSamples': 35000
     }
 }
@@ -170,6 +197,48 @@ def stop_capture():
     return jsonify({
         'success': True,
         'message': '抓包已停止',
+        'timestamp': datetime.now().isoformat()
+    })
+
+
+SUPPORTED_ATTACKS = {'DDoS', 'PortScan', 'FTP-Patator', 'SSH-Patator', 'DoS Hulk', 'Unknown Attack'}
+
+
+@app.route('/api/capture/inject', methods=['POST'])
+def inject_attack():
+    """Inject crafted attack packets to loopback for demo purposes."""
+    err = _engine_guard()
+    if err:
+        return err
+
+    data = request.json or {}
+    attack_type = data.get('attack_type', 'DDoS')
+    count = int(data.get('count', 20))
+
+    if attack_type not in SUPPORTED_ATTACKS:
+        return jsonify({
+            'success': False,
+            'error': f'不支持的攻击类型: {attack_type}. 可选: {sorted(SUPPORTED_ATTACKS)}'
+        }), 400
+
+    if not engine.is_running:
+        return jsonify({
+            'success': False,
+            'error': '抓包未运行，请先在 lo 接口上启动抓包'
+        }), 400
+
+    if count < 1 or count > 200:
+        return jsonify({'success': False, 'error': 'count 必须在 1-200 之间'}), 400
+
+    thread = threading.Thread(target=engine.inject_attack_packets, args=(attack_type, count))
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        'success': True,
+        'message': f'开始注入 {attack_type} ({count}包)',
+        'attack_type': attack_type,
+        'count': count,
         'timestamp': datetime.now().isoformat()
     })
 
