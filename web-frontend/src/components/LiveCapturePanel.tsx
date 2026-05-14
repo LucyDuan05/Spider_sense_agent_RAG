@@ -10,7 +10,8 @@ interface PacketItem {
   length: number
   prediction: string
   confidence: number
-  srcPort?: number  // Added to identify injected packets (port 55555)
+  unknownProb?: number | null
+  srcPort?: number
 }
 
 const INTERFACES = ['eth0', 'wlan0', 'any', 'en0', 'lo']
@@ -32,6 +33,13 @@ const LiveCapturePanel: React.FC = () => {
   const [message, setMessage] = useState('等待开始...')
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({ total: 0, normal: 0, anomaly: 0, unknown: 0 })
+  const [openMaxStats, setOpenMaxStats] = useState<{
+    openmax_enabled: boolean
+    unknown_rate: number
+    unknown_prob_mean: number | null
+    unknown_prob_max: number | null
+    unknown_prob_p95: number | null
+  } | null>(null)
   const [injecting, setInjecting] = useState<AttackType | null>(null)
   const [injectMessage, setInjectMessage] = useState<string>('')
   const [showOnlyInjected, setShowOnlyInjected] = useState(false)
@@ -45,26 +53,28 @@ const LiveCapturePanel: React.FC = () => {
 
     const interval = window.setInterval(async () => {
       try {
-        const resp = await axios.get('/api/capture/status')
+        const [resp, statsResp] = await Promise.all([
+          axios.get('/api/capture/status'),
+          axios.get('/api/capture/stats').catch(() => null),
+        ])
         const data = resp.data?.data
         if (!data) return
 
-        // If backend stopped unexpectedly (permission error, etc.), sync state
         if (!data.isRunning) {
           setIsCapturing(false)
-          if (data.flowDetail?.error) {
-            setError(data.flowDetail.error)
-          }
+          if (data.flowDetail?.error) setError(data.flowDetail.error)
         }
 
         setMessage(`最新检测: ${data.prediction || 'N/A'}`)
 
-        // Key fix: use totalCount as cursor to process ALL new packets
+        if (statsResp?.data?.success) {
+          setOpenMaxStats(statsResp.data.data)
+        }
+
         const newTotal: number = data.totalCount ?? 0
         if (newTotal > lastTotalRef.current) {
           const diff = newTotal - lastTotalRef.current
           const recent: any[] = data.recent ?? []
-          // recent is newest-first; take up to `diff` new ones
           const newFlows = recent.slice(0, Math.min(diff, recent.length))
           lastTotalRef.current = newTotal
 
@@ -78,6 +88,7 @@ const LiveCapturePanel: React.FC = () => {
               length: flow.packet_length ?? 0,
               prediction: flow.prediction ?? 'UNKNOWN',
               confidence: flow.confidence ?? 0,
+              unknownProb: flow.unknown_prob ?? null,
               srcPort: flow.src_port ?? 0,
             }))
 
@@ -286,6 +297,41 @@ const LiveCapturePanel: React.FC = () => {
         </div>
       </div>
 
+      {/* OpenMax Session Stats */}
+      {openMaxStats && (
+        <div style={{
+          marginBottom: 20,
+          padding: '14px 18px',
+          background: 'rgba(0,212,255,0.05)',
+          border: '1px solid rgba(0,212,255,0.2)',
+          borderRadius: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <span style={{ color: '#00d4ff', fontWeight: 600, fontSize: 14 }}>OpenMax 实时统计</span>
+            <span style={{
+              fontSize: 11, padding: '2px 8px', borderRadius: 10,
+              background: openMaxStats.openmax_enabled ? 'rgba(0,255,136,0.15)' : 'rgba(255,71,87,0.15)',
+              color: openMaxStats.openmax_enabled ? '#00ff88' : '#ff4757',
+            }}>
+              {openMaxStats.openmax_enabled ? 'Weibull OpenMax' : 'Confidence Threshold'}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            {[
+              { label: 'Unknown Rate', value: openMaxStats.unknown_rate != null ? (openMaxStats.unknown_rate * 100).toFixed(1) + '%' : '—' },
+              { label: 'Prob Mean', value: openMaxStats.unknown_prob_mean != null ? openMaxStats.unknown_prob_mean.toFixed(3) : '—' },
+              { label: 'Prob Max', value: openMaxStats.unknown_prob_max != null ? openMaxStats.unknown_prob_max.toFixed(3) : '—' },
+              { label: 'Prob P95', value: openMaxStats.unknown_prob_p95 != null ? openMaxStats.unknown_prob_p95.toFixed(3) : '—' },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ textAlign: 'center' }}>
+                <div style={{ color: '#00d4ff', fontSize: 18, fontWeight: 700 }}>{value}</div>
+                <div style={{ color: '#666', fontSize: 11, marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Packet Table */}
       <h3 style={{ color: '#fff', marginBottom: 12 }}>
         Recent Detection Results
@@ -300,7 +346,7 @@ const LiveCapturePanel: React.FC = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                {['Time', 'Src IP', 'Dst IP', 'Protocol', 'Prediction', 'Confidence'].map(h => (
+                {['Time', 'Src IP', 'Dst IP', 'Protocol', 'Prediction', 'Confidence', 'Unknown Prob'].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: '#888', fontWeight: 600 }}>
                     {h}
                   </th>
@@ -338,6 +384,16 @@ const LiveCapturePanel: React.FC = () => {
                       </td>
                       <td style={{ padding: '8px 12px', color: '#888' }}>
                         {(pkt.confidence * 100).toFixed(1)}%
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {pkt.unknownProb != null ? (
+                          <span style={{
+                            color: pkt.unknownProb >= 0.5 ? '#ff4757' : pkt.unknownProb >= 0.3 ? '#ffc107' : '#00ff88',
+                            fontWeight: pkt.unknownProb >= 0.5 ? 700 : 400,
+                          }}>
+                            {(pkt.unknownProb * 100).toFixed(1)}%
+                          </span>
+                        ) : <span style={{ color: '#444' }}>—</span>}
                       </td>
                     </tr>
                   )

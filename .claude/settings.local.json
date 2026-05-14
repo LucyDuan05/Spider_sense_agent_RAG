@@ -3,7 +3,10 @@
     "allow": [
       "Bash(C:/Windows/System32/bash.exe *)",
       "Bash(git add *)",
-      "Read(///wsl.localhost/Ubuntu-24.04/home/mihu/CROSR-main/web-frontend/**)"
+      "Read(///wsl.localhost/Ubuntu-24.04/home/mihu/CROSR-main/web-frontend/**)",
+      "Bash(conda env *)",
+      "Bash(/home/mihu/miniconda3/bin/conda env *)",
+      "Bash(/home/mihu/miniconda3/envs/openmax/bin/python3 *)"
     ]
   }
 }

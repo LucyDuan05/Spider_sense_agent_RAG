@@ -294,6 +294,23 @@ def get_training_status():
     })
 
 
+@app.route('/api/capture/stats', methods=['GET'])
+def get_session_stats():
+    err = _engine_guard()
+    if err:
+        return err
+    return jsonify({'success': True, 'data': engine.get_session_stats()})
+
+
+@app.route('/api/capture/reset-stats', methods=['POST'])
+def reset_session_stats():
+    with engine.lock:
+        engine.class_counts = {}
+        engine.unknown_probs = []
+        engine.total_count = 0
+    return jsonify({'success': True})
+
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})

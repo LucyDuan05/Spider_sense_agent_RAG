@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 
 import numpy as np
+import scipy.spatial.distance as spd
 import torch
 from scapy.all import sniff, IP, TCP, UDP
 
@@ -21,8 +22,85 @@ from DHR_Net_1D import DHRNet1D
 
 MODEL_PATH = os.path.join(PROJECT_ROOT, 'save_models', 'cicids_1d', 'latest.pth')
 SCALER_PATH = os.path.join(PROJECT_ROOT, 'processed_cicids', 'scaler.npz')
+MAV_PATH = os.path.join(PROJECT_ROOT, 'saved_MAVs', 'cicids_1d')
+DISTANCE_PATH = os.path.join(PROJECT_ROOT, 'saved_distance_scores', 'cicids_1d')
+
+OPENMAX_TAIL = 30
+OPENMAX_ALPHA = 3
+OPENMAX_DISTANCE = 'euclidean'
+OPENMAX_UNKNOWN_THRESHOLD = 0.3
 
 DEFAULT_LABELS = ['BENIGN', 'DDoS', 'DoS Hulk', 'PortScan', 'FTP-Patator', 'SSH-Patator']
+
+
+def _compute_distance(query_vec, mean_vec, distance_type):
+    if distance_type == 'eucos':
+        return spd.euclidean(mean_vec, query_vec) / 200. + spd.cosine(mean_vec, query_vec)
+    elif distance_type == 'euclidean':
+        return spd.euclidean(mean_vec, query_vec)
+    elif distance_type == 'cosine':
+        return spd.cosine(mean_vec, query_vec)
+    return spd.euclidean(mean_vec, query_vec)
+
+
+def _compute_openmax_prob(openmax_fc8, openmax_score_u):
+    unknown_logit = np.sum(openmax_score_u)
+    all_logits = np.concatenate([np.asarray(openmax_fc8, dtype=np.float64),
+                                  np.array([unknown_logit], dtype=np.float64)])
+    max_logit = np.max(all_logits)
+    exp_logits = np.exp(all_logits - max_logit)
+    denom = np.sum(exp_logits)
+    if denom == 0.0 or not np.isfinite(denom):
+        return 0.0, exp_logits[:-1] / 1.0
+    probs = exp_logits / denom
+    return float(probs[-1]), probs[:-1].tolist()
+
+
+def _load_weibull_model(mav_path, distance_path, tailsize, distance_type):
+    try:
+        import libmr
+        def _make_mr():
+            return libmr.MR()
+        print("[IDS] Using libmr for Weibull fitting")
+    except (ImportError, OSError):
+        from scipy.stats import weibull_min
+
+        class _MR:
+            def fit_high(self, data, n):
+                self._c, self._loc, self._scale = weibull_min.fit(data, floc=0)
+            def w_score(self, dist):
+                return float(weibull_min.cdf(dist, self._c, loc=self._loc, scale=self._scale))
+
+        def _make_mr():
+            return _MR()
+        print("[IDS] libmr unavailable, using scipy Weibull fallback")
+
+    weibull_model = {}
+    print(f"[IDS] Loading Weibull from MAV={mav_path}, dist={distance_path}")
+    if not os.path.isdir(mav_path) or not os.path.isdir(distance_path):
+        print(f"[IDS] Directory missing: mav_exists={os.path.isdir(mav_path)}, dist_exists={os.path.isdir(distance_path)}")
+        return None
+
+    for filename in os.listdir(mav_path):
+        if not filename.endswith('.npy'):
+            continue
+        category = filename[:-4]
+        npz_file = os.path.join(distance_path, category + '.npz')
+        npy_file = os.path.join(distance_path, category + '.npy')
+        if os.path.isfile(npz_file):
+            dist_scores = np.load(npz_file)[distance_type]
+        elif os.path.isfile(npy_file):
+            dist_scores = np.load(npy_file, allow_pickle=True)[()][distance_type]
+        else:
+            continue
+
+        mean_vec = np.load(os.path.join(mav_path, filename))
+        mr = _make_mr()
+        tail = sorted(dist_scores.tolist())[-tailsize:]
+        mr.fit_high(tail, len(tail))
+        weibull_model[category] = {'mean_vec': mean_vec, 'weibull_model': mr,
+                                    f'distances_{distance_type}': dist_scores}
+    return weibull_model if weibull_model else None
 
 
 def _safe_torch_load(path):
@@ -40,7 +118,8 @@ def _safe_torch_load(path):
 
 
 class IDSInferenceEngine:
-    def __init__(self, model_path=MODEL_PATH, scaler_path=SCALER_PATH):
+    def __init__(self, model_path=MODEL_PATH, scaler_path=SCALER_PATH,
+                 mav_path=MAV_PATH, distance_path=DISTANCE_PATH):
         self.initialized = False
         self.is_running = False
         self.latest_prediction = 'Waiting...'
@@ -53,9 +132,19 @@ class IDSInferenceEngine:
         self.feature_names = []
         self.label_names = list(DEFAULT_LABELS)
         self.model = None
+        self.weibull_model = None
+        # per-session metrics tracking
+        self.class_counts = {}      # {label: int}
+        self.unknown_probs = []     # list of float, last 200 openmax unknown probs
 
         try:
             self._load(model_path, scaler_path)
+            self.weibull_model = _load_weibull_model(
+                mav_path, distance_path, OPENMAX_TAIL, OPENMAX_DISTANCE)
+            if self.weibull_model:
+                print(f"[IDS] OpenMax Weibull model loaded: {len(self.weibull_model)} classes")
+            else:
+                print("[IDS] Weibull model not available, falling back to confidence threshold")
             self.initialized = True
             print(f"[IDS] Model loaded: {len(self.label_names)} classes, {len(self.feature_names)} features")
         except Exception as exc:
@@ -199,6 +288,42 @@ class IDSInferenceEngine:
 
         return vector
 
+    def _extract_features(self, input_tensor):
+        """Extract the same 102-dim feature vector used during training (logits + pooled latents)."""
+        import torch.nn.functional as F
+        logits, _, latent = self.model(input_tensor)
+        pooled = [l.mean(dim=-1) for l in latent]  # AdaptiveAvgPool1d(1) equivalent
+        feature = torch.cat([logits] + pooled, dim=1).squeeze(0)
+        return logits.squeeze(0), feature
+
+    def _openmax_recalibrate(self, logits_np, feature_np):
+        """Apply OpenMax recalibration using Weibull model. Returns (unknown_prob, class_probs)."""
+        nclasses = len(self.weibull_model)
+        alpha = min(OPENMAX_ALPHA, nclasses)
+        ranked = logits_np[:nclasses].argsort()[::-1]
+        alpha_weights = np.zeros(nclasses)
+        for i in range(alpha):
+            alpha_weights[ranked[i]] = (alpha + 1 - (i + 1)) / float(alpha)
+
+        openmax_fc8 = []
+        openmax_unknown = []
+        for cls_idx in range(nclasses):
+            cat = str(cls_idx)
+            if cat not in self.weibull_model:
+                openmax_fc8.append(logits_np[cls_idx])
+                openmax_unknown.append(0.0)
+                continue
+            mav = self.weibull_model[cat]['mean_vec']
+            mr = self.weibull_model[cat]['weibull_model']
+            dist = _compute_distance(feature_np, mav, OPENMAX_DISTANCE)
+            wscore = mr.w_score(dist)
+            modified = logits_np[cls_idx] * (1 - wscore * alpha_weights[cls_idx])
+            openmax_fc8.append(modified)
+            openmax_unknown.append(logits_np[cls_idx] - modified)
+
+        unknown_prob, class_probs = _compute_openmax_prob(openmax_fc8, openmax_unknown)
+        return unknown_prob, class_probs
+
     def predict_features(self, features):
         if not self.initialized:
             raise RuntimeError('模型未初始化')
@@ -210,19 +335,31 @@ class IDSInferenceEngine:
         input_tensor = torch.from_numpy(x_norm).float().unsqueeze(0).unsqueeze(0)
 
         with torch.no_grad():
-            logits, _, _ = self.model(input_tensor)
-            probs = torch.softmax(logits, dim=1).squeeze(0)
-            confidence, pred = torch.max(probs, dim=0)
+            logits_t, feature_t = self._extract_features(input_tensor)
+            logits_np = logits_t.numpy()
+            feature_np = feature_t.numpy()
+            probs_tensor = torch.softmax(logits_t, dim=0)
+            confidence, pred = torch.max(probs_tensor, dim=0)
 
-        label = self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
-        if float(confidence.item()) < 0.65:
-            label = 'UNKNOWN'
+        unknown_prob = None
+        if self.weibull_model:
+            unknown_prob, class_probs = self._openmax_recalibrate(logits_np, feature_np)
+            label = 'UNKNOWN' if unknown_prob >= OPENMAX_UNKNOWN_THRESHOLD else (
+                self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
+            )
+        else:
+            class_probs = [float(x) for x in probs_tensor.tolist()]
+            label = self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
+            if float(confidence.item()) < 0.65:
+                label = 'UNKNOWN'
 
         return {
             'prediction': label,
             'confidence': float(confidence.item()),
             'class_id': int(pred.item()),
-            'probabilities': [float(x) for x in probs.tolist()]
+            'probabilities': class_probs,
+            'unknown_prob': float(unknown_prob) if unknown_prob is not None else None,
+            'openmax_enabled': self.weibull_model is not None,
         }
 
     def predict_packet(self, pkt):
@@ -244,6 +381,29 @@ class IDSInferenceEngine:
 
         raise ValueError('packet 字段必须包含 src_ip、dst_ip 和 protocol')
 
+    def _record_result(self, result):
+        label = result['prediction']
+        self.class_counts[label] = self.class_counts.get(label, 0) + 1
+        if result.get('unknown_prob') is not None:
+            self.unknown_probs.append(result['unknown_prob'])
+            if len(self.unknown_probs) > 200:
+                self.unknown_probs.pop(0)
+
+    def get_session_stats(self):
+        with self.lock:
+            total = self.total_count or 1
+            unknown_count = self.class_counts.get('UNKNOWN', 0)
+            probs = self.unknown_probs
+            return {
+                'total_count': self.total_count,
+                'class_distribution': dict(self.class_counts),
+                'unknown_rate': round(unknown_count / total, 4),
+                'openmax_enabled': self.weibull_model is not None,
+                'unknown_prob_mean': round(float(np.mean(probs)), 4) if probs else None,
+                'unknown_prob_max': round(float(np.max(probs)), 4) if probs else None,
+                'unknown_prob_p95': round(float(np.percentile(probs, 95)), 4) if probs else None,
+            }
+
     def _packet_callback(self, pkt):
         if not pkt.haslayer(IP):
             return
@@ -253,6 +413,7 @@ class IDSInferenceEngine:
 
         with self.lock:
             self.total_count += 1
+            self._record_result(result)
             self.latest_prediction = result['prediction']
             self.latest_flow_info = {
                 'src_ip': pkt[IP].src,
@@ -260,6 +421,7 @@ class IDSInferenceEngine:
                 'protocol': 'TCP' if pkt.haslayer(TCP) else 'UDP' if pkt.haslayer(UDP) else 'OTHER',
                 'confidence': result['confidence'],
                 'prediction': result['prediction'],
+                'unknown_prob': result.get('unknown_prob'),
                 'timestamp': now,
                 'packet_length': len(pkt),
                 'src_port': int(pkt[TCP].sport if pkt.haslayer(TCP) else pkt[UDP].sport if pkt.haslayer(UDP) else 0),
@@ -275,13 +437,28 @@ class IDSInferenceEngine:
         """Run inference on already-normalized features (skips scaler step)."""
         input_tensor = torch.from_numpy(x_norm.astype(np.float32)).unsqueeze(0).unsqueeze(0)
         with torch.no_grad():
-            logits, _, _ = self.model(input_tensor)
-            probs = torch.softmax(logits, dim=1).squeeze(0)
-            confidence, pred = torch.max(probs, dim=0)
-        label = self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
-        if float(confidence.item()) < 0.65:
-            label = 'UNKNOWN'
-        return {'prediction': label, 'confidence': float(confidence.item())}
+            logits_t, feature_t = self._extract_features(input_tensor)
+            logits_np = logits_t.numpy()
+            feature_np = feature_t.numpy()
+            probs_tensor = torch.softmax(logits_t, dim=0)
+            confidence, pred = torch.max(probs_tensor, dim=0)
+
+        unknown_prob = None
+        if self.weibull_model:
+            unknown_prob, _ = self._openmax_recalibrate(logits_np, feature_np)
+            label = 'UNKNOWN' if unknown_prob >= OPENMAX_UNKNOWN_THRESHOLD else (
+                self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
+            )
+        else:
+            label = self.label_names[pred.item()] if pred.item() < len(self.label_names) else f'CLASS_{pred.item()}'
+            if float(confidence.item()) < 0.65:
+                label = 'UNKNOWN'
+
+        return {
+            'prediction': label,
+            'confidence': float(confidence.item()),
+            'unknown_prob': float(unknown_prob) if unknown_prob is not None else None,
+        }
 
     def inject_attack_packets(self, attack_type, count=20):
         """Inject real feature vectors directly into recent_results.
@@ -329,14 +506,16 @@ class IDSInferenceEngine:
                 'protocol': 'TCP',
                 'confidence': result['confidence'],
                 'prediction': result['prediction'],
+                'unknown_prob': result.get('unknown_prob'),
                 'timestamp': now,
                 'packet_length': 100,
                 'src_port': 55555,
                 'dst_port': 80,
-                'true_label': true_labels[i],  # For debug/logging only
+                'true_label': true_labels[i],
             }
             with self.lock:
                 self.total_count += 1
+                self._record_result(result)
                 self.latest_prediction = result['prediction']
                 self.latest_flow_info = flow_info.copy()
                 self.recent_results.insert(0, flow_info)
