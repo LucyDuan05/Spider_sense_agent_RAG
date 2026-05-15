@@ -28,7 +28,7 @@ DISTANCE_PATH = os.path.join(PROJECT_ROOT, 'saved_distance_scores', 'cicids_1d')
 OPENMAX_TAIL = 30
 OPENMAX_ALPHA = 3
 OPENMAX_DISTANCE = 'euclidean'
-OPENMAX_UNKNOWN_THRESHOLD = 0.3
+OPENMAX_UNKNOWN_THRESHOLD = 0.0003
 
 DEFAULT_LABELS = ['BENIGN', 'DDoS', 'DoS Hulk', 'PortScan', 'FTP-Patator', 'SSH-Patator']
 
@@ -527,6 +527,8 @@ class IDSInferenceEngine:
     def run_detection(self, interface='eth0'):
         self.is_running = True
         self.total_count = 0
+        self.class_counts = {}
+        self.unknown_probs = []
         try:
             while self.is_running:
                 sniff(iface=interface, prn=self._packet_callback, store=False, timeout=1)
