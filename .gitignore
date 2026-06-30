@@ -85,6 +85,9 @@ web-frontend/frontend/build/
 web-frontend/frontend/.env
 web-frontend/backend/__pycache__/
 web-frontend/backend/*.pyc
+web-frontend/node_modules/
+web-frontend/build/
+web-frontend/.cache/
 
 # Package manager
 node_modules/
