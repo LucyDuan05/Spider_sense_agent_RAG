@@ -6,7 +6,14 @@
       "Read(///wsl.localhost/Ubuntu-24.04/home/mihu/CROSR-main/web-frontend/**)",
       "Bash(conda env *)",
       "Bash(/home/mihu/miniconda3/bin/conda env *)",
-      "Bash(/home/mihu/miniconda3/envs/openmax/bin/python3 *)"
+      "Bash(/home/mihu/miniconda3/envs/openmax/bin/python3 *)",
+      "Read(///wsl.localhost/Ubuntu-24.04/home/mihu/CROSR-main/web-frontend/src/**)",
+      "Read(///wsl.localhost/Ubuntu-24.04/home/mihu/**)",
+      "Bash(chmod +x build_scripts/build_exe.sh)",
+      "Bash(conda run *)",
+      "Read(//c/Users/pc/**)",
+      "Bash(python -c \"import torch; print\\('torch:', torch.__version__\\); import numpy; print\\('numpy:', numpy.__version__\\); import flask; print\\('flask:', flask.__version__\\); from sklearn.ensemble import IsolationForest; print\\('sklearn: OK'\\)\")",
+      "Bash(python -c ' *)"
     ]
   }
 }

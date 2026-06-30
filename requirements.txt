@@ -1,0 +1,25 @@
+# Spider-Sense v2 - Dependencies
+# Install: pip install -r requirements.txt
+
+# Core
+flask>=2.0.0
+flask-cors>=3.0.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+
+# Deep Learning (for Transformer detector)
+torch>=1.10.0
+# torchvision  # not needed for 1D model
+
+# Data Processing
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Web Server (production)
+waitress>=2.0.0  # Windows-friendly WSGI server
+
+# Optional: LLM API (for agent mode)
+requests>=2.25.0
+
+# Optional: Packet capture (for live capture)
+# scapy>=2.4.0  # requires npcap on Windows

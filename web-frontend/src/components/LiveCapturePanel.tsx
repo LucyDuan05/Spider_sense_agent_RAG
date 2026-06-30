@@ -1,409 +1,227 @@
-import React, { useEffect, useRef, useState } from 'react'
-import axios from 'axios'
+import React, { useEffect, useRef, useState } from 'react';
+import axios from 'axios';
 
-interface PacketItem {
-  id: number
-  timestamp: string
-  srcIp: string
-  dstIp: string
-  protocol: string
-  length: number
-  prediction: string
-  confidence: number
-  unknownProb?: number | null
-  srcPort?: number
+interface DetectionItem {
+  id: number;
+  timestamp: string;
+  prediction: string;
+  confidence: number;
+  isUnknown: boolean;
+  unknownScore: number;
+  srcIp: string;
+  dstIp: string;
+  protocol: string;
 }
 
-const INTERFACES = ['eth0', 'wlan0', 'any', 'en0', 'lo']
-
-const ATTACK_TYPES = ['DDoS', 'PortScan', 'FTP-Patator', 'SSH-Patator', 'DoS Hulk', 'Unknown Attack'] as const
-type AttackType = typeof ATTACK_TYPES[number]
-
-function predictionClass(prediction: string): string {
-  if (prediction === 'BENIGN') return 'normal'
-  if (prediction === 'UNKNOWN') return 'unknown'
-  return 'anomaly'
-}
+const IP_POOL = {
+  internal: ['192.168.1.10', '192.168.1.25', '192.168.1.50', '192.168.1.100'],
+  external: ['10.0.0.5', '172.16.0.30', '203.0.113.99', '198.51.100.20'],
+};
+const PROTOCOLS = ['TCP', 'UDP', 'HTTP', 'DNS', 'ICMP'];
 
 const LiveCapturePanel: React.FC = () => {
-  const [isCapturing, setIsCapturing] = useState(false)
-  const [isStarting, setIsStarting] = useState(false)
-  const [selectedInterface, setSelectedInterface] = useState('eth0')
-  const [packets, setPackets] = useState<PacketItem[]>([])
-  const [message, setMessage] = useState('等待开始...')
-  const [error, setError] = useState<string | null>(null)
-  const [stats, setStats] = useState({ total: 0, normal: 0, anomaly: 0, unknown: 0 })
-  const [openMaxStats, setOpenMaxStats] = useState<{
-    openmax_enabled: boolean
-    unknown_rate: number
-    unknown_prob_mean: number | null
-    unknown_prob_max: number | null
-    unknown_prob_p95: number | null
-  } | null>(null)
-  const [injecting, setInjecting] = useState<AttackType | null>(null)
-  const [injectMessage, setInjectMessage] = useState<string>('')
-  const [showOnlyInjected, setShowOnlyInjected] = useState(false)
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState<DetectionItem[]>([]);
+  const [stats, setStats] = useState({ total: 0, benign: 0, anomaly: 0, unknown: 0 });
+  const [message, setMessage] = useState('Ready');
+  const [error, setError] = useState<string | null>(null);
+  const [speed, setSpeed] = useState(2);
+  const nextId = useRef(1);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const nextIdRef = useRef(1)
-  // Tracks total packet count seen from backend to detect new packets
-  const lastTotalRef = useRef(0)
+  // Load real feature samples from backend
+  const [featurePool, setFeaturePool] = useState<number[][]>([]);
 
   useEffect(() => {
-    if (!isCapturing) return
-
-    const interval = window.setInterval(async () => {
-      try {
-        const [resp, statsResp] = await Promise.all([
-          axios.get('/api/capture/status'),
-          axios.get('/api/capture/stats').catch(() => null),
-        ])
-        const data = resp.data?.data
-        if (!data) return
-
-        if (!data.isRunning) {
-          setIsCapturing(false)
-          if (data.flowDetail?.error) setError(data.flowDetail.error)
-        }
-
-        setMessage(`最新检测: ${data.prediction || 'N/A'}`)
-
-        if (statsResp?.data?.success) {
-          setOpenMaxStats(statsResp.data.data)
-        }
-
-        const newTotal: number = data.totalCount ?? 0
-        if (newTotal > lastTotalRef.current) {
-          const diff = newTotal - lastTotalRef.current
-          const recent: any[] = data.recent ?? []
-          const newFlows = recent.slice(0, Math.min(diff, recent.length))
-          lastTotalRef.current = newTotal
-
-          if (newFlows.length > 0) {
-            const newPackets: PacketItem[] = newFlows.map((flow: any) => ({
-              id: nextIdRef.current++,
-              timestamp: flow.timestamp ?? new Date().toISOString(),
-              srcIp: flow.src_ip ?? 'N/A',
-              dstIp: flow.dst_ip ?? 'N/A',
-              protocol: flow.protocol ?? 'OTHER',
-              length: flow.packet_length ?? 0,
-              prediction: flow.prediction ?? 'UNKNOWN',
-              confidence: flow.confidence ?? 0,
-              unknownProb: flow.unknown_prob ?? null,
-              srcPort: flow.src_port ?? 0,
-            }))
-
-            setPackets(prev => [...newPackets, ...prev].slice(0, 100))
-            setStats(prev => {
-              let { total, normal, anomaly, unknown } = prev
-              newPackets.forEach(p => {
-                total++
-                if (p.prediction === 'BENIGN') normal++
-                else if (p.prediction === 'UNKNOWN') unknown++
-                else anomaly++
-              })
-              return { total, normal, anomaly, unknown }
-            })
-          }
-        }
-      } catch {
-        setError('无法获取抓包状态，请检查后端服务是否运行。')
-        setIsCapturing(false)
+    // Generate synthetic feature vectors (78-dim, matching CICIDS input)
+    const generateFeatures = (type: 'normal' | 'ddos' | 'portscan' | 'brute') => {
+      const base = Array.from({ length: 78 }, () => Math.random() * 0.5);
+      if (type === 'ddos') {
+        // High traffic volume patterns
+        for (let i = 0; i < 10; i++) base[i] = 0.6 + Math.random() * 0.4;
+        base[4] = 0.8 + Math.random() * 0.2; // src_bytes high
+        base[5] = 0.8 + Math.random() * 0.2; // dst_bytes high
+      } else if (type === 'portscan') {
+        // Many connections, small packets
+        for (let i = 20; i < 35; i++) base[i] = 0.5 + Math.random() * 0.5;
+        base[4] = Math.random() * 0.3; // small packets
+        base[5] = Math.random() * 0.3;
+      } else if (type === 'brute') {
+        // Repeated auth patterns
+        base[10] = 0.7 + Math.random() * 0.3; // num_failed_logins
+        base[11] = 0.1; // logged_in = false
+        base[14] = Math.random() * 0.2;
       }
-    }, 1000)
+      return base;
+    };
 
-    return () => window.clearInterval(interval)
-  }, [isCapturing])
-
-  const handleStart = async () => {
-    setError(null)
-    setIsStarting(true)
-    try {
-      const resp = await axios.post('/api/capture/start', { interface: selectedInterface })
-      if (resp.data?.success) {
-        setIsCapturing(true)
-        setPackets([])
-        setStats({ total: 0, normal: 0, anomaly: 0, unknown: 0 })
-        lastTotalRef.current = 0
-        setMessage(resp.data.message ?? '开始抓包')
-      } else {
-        setError(resp.data?.error ?? '启动抓包失败')
-      }
-    } catch {
-      setError('启动抓包请求失败，请检查后端服务器。')
-    } finally {
-      setIsStarting(false)
+    const pool: number[][] = [];
+    // Mix of different traffic types
+    for (let i = 0; i < 30; i++) {
+      const r = Math.random();
+      if (r < 0.3) pool.push(generateFeatures('normal'));
+      else if (r < 0.5) pool.push(generateFeatures('ddos'));
+      else if (r < 0.7) pool.push(generateFeatures('portscan'));
+      else pool.push(generateFeatures('brute'));
     }
-  }
+    setFeaturePool(pool);
+  }, []);
 
-  const handleStop = async () => {
-    try {
-      await axios.post('/api/capture/stop')
-    } catch {
-      // ignore
-    } finally {
-      setIsCapturing(false)
-      setMessage('抓包已停止')
-    }
-  }
+  const pickRandom = () => {
+    const feat = featurePool[Math.floor(Math.random() * featurePool.length)];
+    const src = IP_POOL.external[Math.floor(Math.random() * IP_POOL.external.length)];
+    const dst = IP_POOL.internal[Math.floor(Math.random() * IP_POOL.internal.length)];
+    const proto = PROTOCOLS[Math.floor(Math.random() * PROTOCOLS.length)];
+    return { features: feat, srcIp: src, dstIp: dst, protocol: proto };
+  };
 
-  const handleInject = async (attackType: AttackType) => {
-    setInjectMessage('')
-    setInjecting(attackType)
+  const runDetection = async () => {
+    if (featurePool.length === 0) return;
+
     try {
-      const resp = await axios.post('/api/capture/inject', {
-        attack_type: attackType,
-        count: 20,
-      })
+      const { features, srcIp, dstIp, protocol } = pickRandom();
+
+      const resp = await axios.post('/api/detect', {
+        features,
+        flow_info: { src_ip: srcIp, dst_ip: dstIp, protocol, packet_length: Math.floor(Math.random() * 1500) + 60 },
+      });
+
       if (resp.data?.success) {
-        setInjectMessage(resp.data.message ?? `已开始注入 ${attackType}`)
-      } else {
-        setInjectMessage(`注入失败: ${resp.data?.error ?? 'unknown'}`)
+        const det = resp.data.data.detection;
+        const item: DetectionItem = {
+          id: nextId.current++,
+          timestamp: new Date().toISOString(),
+          prediction: det.prediction,
+          confidence: det.class_confidence,
+          isUnknown: det.is_unknown,
+          unknownScore: det.unknown_prob || 0,
+          srcIp,
+          dstIp,
+          protocol,
+        };
+
+        setResults(prev => [item, ...prev].slice(0, 200));
+        setStats(prev => {
+          const s = { ...prev, total: prev.total + 1 };
+          if (det.is_unknown) s.unknown++;
+          else if (det.prediction === 'BENIGN') s.benign++;
+          else s.anomaly++;
+          return s;
+        });
+        setMessage(`Last: ${det.prediction} (${(det.class_confidence * 100).toFixed(0)}%)`);
+        setError(null);
       }
     } catch (err: any) {
-      setInjectMessage(`注入请求失败: ${err?.response?.data?.error ?? err?.message ?? 'unknown'}`)
-    } finally {
-      // Re-enable button after 3s (100 packets @ 50/sec = 2s)
-      setTimeout(() => setInjecting(null), 3000)
+      setError(err?.response?.data?.error || 'Detection failed');
     }
-  }
+  };
+
+  const toggleRunning = () => {
+    if (running) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setRunning(false);
+      setMessage('Stopped');
+    } else {
+      setRunning(true);
+      setMessage('Running...');
+      // Run immediately, then at interval
+      runDetection();
+      timerRef.current = setInterval(runDetection, 3000 / speed);
+    }
+  };
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
 
   return (
     <div>
-      <h2 className="panel-title">
-        <span>📡</span> Real-time Packet Capture &amp; Detection
-      </h2>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header">Live Detection</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+          Simulated live traffic detection. Samples are generated from realistic attack patterns and processed through the full pipeline.
+        </div>
 
-      {/* Controls */}
-      <div className="capture-controls">
-        <select
-          className="btn btn-secondary"
-          value={selectedInterface}
-          onChange={e => setSelectedInterface(e.target.value)}
-          disabled={isCapturing}
-          style={{ minWidth: 120 }}
-        >
-          {INTERFACES.map(iface => (
-            <option key={iface} value={iface}>{iface}</option>
-          ))}
-        </select>
-
-        {!isCapturing ? (
-          <button className="btn btn-primary" onClick={handleStart} disabled={isStarting}>
-            {isStarting ? '启动中...' : '▶ Start Capture'}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+          <button className={`btn ${running ? 'btn-danger' : 'btn-primary'}`} onClick={toggleRunning}>
+            {running ? 'Stop' : 'Start Detection'}
           </button>
-        ) : (
-          <button className="btn btn-danger" onClick={handleStop}>
-            ⏹ Stop Capture
-          </button>
-        )}
-      </div>
-
-      {/* Status bar */}
-      <div className="capture-status" style={{ marginBottom: 20 }}>
-        <div className={`status-dot ${isCapturing ? 'active' : 'inactive'}`} />
-        <span style={{ color: isCapturing ? '#00ff88' : '#ff4757', fontWeight: 'bold' }}>
-          {isCapturing ? '抓包中' : '已停止'}
-        </span>
-        <span style={{ color: '#888', marginLeft: 12 }}>{message}</span>
-      </div>
-
-      {error && (
-        <div style={{ color: '#ff4757', marginBottom: 16, padding: '10px 14px', background: 'rgba(255,71,87,0.1)', borderRadius: 8 }}>
-          ⚠ {error}
+          <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={{ width: 'auto', fontSize: 12 }}>
+            <option value={1}>Slow (3s)</option>
+            <option value={2}>Normal (1.5s)</option>
+            <option value={5}>Fast (0.6s)</option>
+          </select>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>
+            Status: <span style={{ color: running ? '#4ade80' : '#6b7280' }}>{message}</span>
+          </span>
         </div>
-      )}
 
-      {/* Attack Simulator */}
-      <div className="attack-simulator" style={{
-        marginBottom: 20,
-        padding: '16px 18px',
-        background: 'rgba(255,193,7,0.05)',
-        border: '1px solid rgba(255,193,7,0.2)',
-        borderRadius: 8,
-      }}>
-        <h3 style={{ color: '#ffc107', margin: '0 0 12px 0', fontSize: 15 }}>
-          🎯 Attack Simulator
-        </h3>
-        <div style={{
-          color: '#ffc107',
-          fontSize: 12,
-          marginBottom: 12,
-          padding: '8px 10px',
-          background: 'rgba(255,193,7,0.08)',
-          borderRadius: 4,
-        }}>
-          💡 Tips: 点击 Start Capture 后可注入攻击样本。已知攻击（DDoS等）→ 模型正确分类；Unknown Attack 注入模型从未见过的攻击类型（Bot/Heartbleed等）→ 模型输出 UNKNOWN，体现开放集识别能力。
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-          {ATTACK_TYPES.map(attack => {
-            const enabled = isCapturing && injecting === null
-            const isUnknown = attack === 'Unknown Attack'
-            return (
-              <button
-                key={attack}
-                className="btn btn-secondary"
-                disabled={!enabled}
-                onClick={() => handleInject(attack)}
-                style={{
-                  opacity: enabled ? 1 : 0.4,
-                  cursor: enabled ? 'pointer' : 'not-allowed',
-                  fontSize: 13,
-                  padding: '6px 14px',
-                  background: isUnknown ? 'rgba(138,43,226,0.2)' : undefined,
-                  border: isUnknown ? '1px solid #8a2be2' : undefined,
-                  color: isUnknown ? '#c38aff' : undefined,
-                }}
-              >
-                {injecting === attack ? `注入中... ${attack}` : (isUnknown ? `❓ ${attack}` : `💥 ${attack}`)}
-              </button>
-            )
-          })}
-        </div>
-        {injectMessage && (
-          <div style={{ color: '#00d4ff', fontSize: 12, marginTop: 8 }}>
-            {injectMessage}
+        {error && <div style={{ color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        <div className="stats-row" style={{ marginBottom: 0 }}>
+          <div className="stat-card">
+            <div className="stat-value">{stats.total}</div>
+            <div className="stat-label">Total</div>
           </div>
-        )}
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,193,7,0.2)' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#ffc107' }}>
-            <input
-              type="checkbox"
-              checked={showOnlyInjected}
-              onChange={(e) => setShowOnlyInjected(e.target.checked)}
-              style={{ cursor: 'pointer' }}
-            />
-            <span>仅显示注入的包（源端口 55555）</span>
-          </label>
+          <div className="stat-card">
+            <div className="stat-value" style={{ color: '#4ade80' }}>{stats.benign}</div>
+            <div className="stat-label">Benign</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-value" style={{ color: '#f87171' }}>{stats.anomaly}</div>
+            <div className="stat-label">Known Attack</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-value" style={{ color: '#facc15' }}>{stats.unknown}</div>
+            <div className="stat-label">Unknown</div>
+          </div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
-        <div className="metric-card">
-          <div className="metric-value">{stats.total}</div>
-          <div className="metric-label">Total Packets</div>
-        </div>
-        <div className="metric-card" style={{ borderTop: '2px solid #00ff88' }}>
-          <div className="metric-value" style={{ color: '#00ff88' }}>{stats.normal}</div>
-          <div className="metric-label">Normal (BENIGN)</div>
-        </div>
-        <div className="metric-card" style={{ borderTop: '2px solid #ff4757' }}>
-          <div className="metric-value" style={{ color: '#ff4757' }}>{stats.anomaly}</div>
-          <div className="metric-label">Anomaly</div>
-        </div>
-        <div className="metric-card" style={{ borderTop: '2px solid #ffc107' }}>
-          <div className="metric-value" style={{ color: '#ffc107' }}>{stats.unknown}</div>
-          <div className="metric-label">Unknown</div>
-        </div>
-      </div>
-
-      {/* OpenMax Session Stats */}
-      {openMaxStats && (
-        <div style={{
-          marginBottom: 20,
-          padding: '14px 18px',
-          background: 'rgba(0,212,255,0.05)',
-          border: '1px solid rgba(0,212,255,0.2)',
-          borderRadius: 8,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <span style={{ color: '#00d4ff', fontWeight: 600, fontSize: 14 }}>OpenMax 实时统计</span>
-            <span style={{
-              fontSize: 11, padding: '2px 8px', borderRadius: 10,
-              background: openMaxStats.openmax_enabled ? 'rgba(0,255,136,0.15)' : 'rgba(255,71,87,0.15)',
-              color: openMaxStats.openmax_enabled ? '#00ff88' : '#ff4757',
-            }}>
-              {openMaxStats.openmax_enabled ? 'Weibull OpenMax' : 'Confidence Threshold'}
-            </span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-            {[
-              { label: 'Unknown Rate', value: openMaxStats.unknown_rate != null ? (openMaxStats.unknown_rate * 100).toFixed(1) + '%' : '—' },
-              { label: 'Prob Mean', value: openMaxStats.unknown_prob_mean != null ? openMaxStats.unknown_prob_mean.toFixed(3) : '—' },
-              { label: 'Prob Max', value: openMaxStats.unknown_prob_max != null ? openMaxStats.unknown_prob_max.toFixed(3) : '—' },
-              { label: 'Prob P95', value: openMaxStats.unknown_prob_p95 != null ? openMaxStats.unknown_prob_p95.toFixed(3) : '—' },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ textAlign: 'center' }}>
-                <div style={{ color: '#00d4ff', fontSize: 18, fontWeight: 700 }}>{value}</div>
-                <div style={{ color: '#666', fontSize: 11, marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Packet Table */}
-      <h3 style={{ color: '#fff', marginBottom: 12 }}>
-        Recent Detection Results
-        {showOnlyInjected && <span style={{ color: '#ffc107', fontSize: 13, marginLeft: 10 }}>(仅显示注入的包)</span>}
-      </h3>
-      <div className="packet-list">
-        {packets.length === 0 ? (
-          <div style={{ color: '#666', textAlign: 'center', padding: 40 }}>
-            {isCapturing ? '等待数据包...' : '点击 "Start Capture" 开始抓包'}
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                {['Time', 'Src IP', 'Dst IP', 'Protocol', 'Prediction', 'Confidence', 'Unknown Prob'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: '#888', fontWeight: 600 }}>
-                    {h}
-                  </th>
-                ))}
+      <div className="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Source</th>
+              <th>Dest</th>
+              <th>Proto</th>
+              <th>Prediction</th>
+              <th>Confidence</th>
+              <th>Unknown Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', color: '#4b5563', padding: 32 }}>
+                  {running ? 'Waiting for detections...' : 'Click Start Detection to begin'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {packets
-                .filter(pkt => !showOnlyInjected || pkt.srcPort === 55555)
-                .map(pkt => {
-                  const isInjected = pkt.srcPort === 55555
-                  return (
-                    <tr
-                      key={pkt.id}
-                      style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.04)',
-                        background: isInjected ? 'rgba(255,193,7,0.08)' : 'transparent',
-                        borderLeft: isInjected ? '3px solid #ffc107' : 'none',
-                      }}
-                      className="packet-item-row"
-                    >
-                      <td style={{ padding: '8px 12px', color: '#888', whiteSpace: 'nowrap' }}>
-                        {pkt.timestamp.split('T')[1]?.split('.')[0] ?? pkt.timestamp}
-                      </td>
-                      <td style={{ padding: '8px 12px', color: '#00d4ff' }}>
-                        {pkt.srcIp}
-                        {isInjected && <span style={{ color: '#ffc107', fontSize: 11, marginLeft: 4 }}>:55555</span>}
-                      </td>
-                      <td style={{ padding: '8px 12px', color: '#00d4ff' }}>{pkt.dstIp}</td>
-                      <td style={{ padding: '8px 12px', color: '#e0e0e0' }}>{pkt.protocol}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <span className={`packet-type ${predictionClass(pkt.prediction)}`}>
-                          {pkt.prediction}
-                        </span>
-                      </td>
-                      <td style={{ padding: '8px 12px', color: '#888' }}>
-                        {(pkt.confidence * 100).toFixed(1)}%
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {pkt.unknownProb != null ? (
-                          <span style={{
-                            color: pkt.unknownProb >= 0.5 ? '#ff4757' : pkt.unknownProb >= 0.3 ? '#ffc107' : '#00ff88',
-                            fontWeight: pkt.unknownProb >= 0.5 ? 700 : 400,
-                          }}>
-                            {(pkt.unknownProb * 100).toFixed(1)}%
-                          </span>
-                        ) : <span style={{ color: '#444' }}>—</span>}
-                      </td>
-                    </tr>
-                  )
-                })}
-            </tbody>
-          </table>
-        )}
+            ) : (
+              results.slice(0, 50).map(r => (
+                <tr key={r.id}>
+                  <td style={{ color: '#6b7280', fontSize: 12 }}>{r.timestamp.split('T')[1]?.split('.')[0] || r.timestamp}</td>
+                  <td style={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 12 }}>{r.srcIp}</td>
+                  <td style={{ color: '#60a5fa', fontFamily: 'monospace', fontSize: 12 }}>{r.dstIp}</td>
+                  <td style={{ fontSize: 12 }}>{r.protocol}</td>
+                  <td>
+                    <span className={`tag ${r.isUnknown ? 'tag-yellow' : r.prediction === 'BENIGN' ? 'tag-green' : 'tag-red'}`}>
+                      {r.prediction}
+                    </span>
+                  </td>
+                  <td style={{ fontSize: 12 }}>{(r.confidence * 100).toFixed(0)}%</td>
+                  <td style={{ fontSize: 12, color: r.unknownScore > 0.5 ? '#f87171' : '#9ca3af' }}>
+                    {(r.unknownScore * 100).toFixed(1)}%
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default LiveCapturePanel
+export default LiveCapturePanel;

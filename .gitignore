@@ -1,16 +1,125 @@
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
-.ipynb_checkpoints/
+*.pyo
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
 
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Conda
+.conda/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# Model checkpoints and training artifacts
+save_models/
+*.pth
+*.pt
+*.ckpt
+checkpoint/
+checkpoints/
+
+# Extracted features and intermediate results
+saved_features/
+saved_MAVs/
+saved_distance_scores/
+
+# Processed data (keep scripts, ignore processed outputs)
+processed_*/
+*.npz
+*.npy
+
+# Raw datasets
 cicids/
 cicids2018/
 nslkdd/
 unsw_nb15/
 data/
 
-saved_features/
+# Training logs
+logs/
+runs/
+*.log
+tensorboard/
+wandb/
 
-save_models/cifar10/
-save_models/cifar10_paperfix/
+# Temporary files
+*.tmp
+*.bak
+.cache/
+tmp/
+temp/
+/tmp/scan_*.txt
 
-processed_unsw_nb15/val_known.npz
+# Scan results
+scan_results/
+best_auroc_results.json
+
+# Web frontend
+web-frontend/frontend/node_modules/
+web-frontend/frontend/build/
+web-frontend/frontend/.env
+web-frontend/backend/__pycache__/
+web-frontend/backend/*.pyc
+
+# Package manager
+node_modules/
+package-lock.json
+yarn.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Compiled libMR
+libMR/build/
+libMR/dist/
+libMR/*.so
+libMR/*.pyc
+libMR/__pycache__/
+libMR/libmr.egg-info/
+
+# HTML reports (keep docs)
+*.html
+!docs/*.html
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Editor backup files
+*~
+\#*\#
+.\#*

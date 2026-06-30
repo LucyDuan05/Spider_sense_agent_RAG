@@ -1,0 +1,82 @@
+{
+  "T1498": {
+    "name": "Network Denial of Service",
+    "tactics": ["Impact"],
+    "description": "攻击者通过耗尽网络带宽或资源来执行网络拒绝服务攻击。常见方法包括UDP/ICMP洪泛、SYN洪泛、HTTP洪泛、Slowloris慢速攻击等。检测指标：异常高的入站流量、单个源IP的大量连接、异常的数据包速率。",
+    "platforms": ["Linux", "Windows", "macOS", "Network"],
+    "detection": "监控网络流量基线偏差、入站流量速率异常、SYN包比例异常",
+    "mitigation": "流量清洗、速率限制、CDN分发、上游ISP过滤"
+  },
+  "T1046": {
+    "name": "Network Service Scanning",
+    "tactics": ["Discovery"],
+    "description": "攻击者通过扫描远程主机来获取运行中的服务列表。典型特征包括短时间内对多个端口的连接尝试、对异常端口的探测、SYN扫描模式。",
+    "platforms": ["Linux", "Windows", "macOS", "Network"],
+    "detection": "监控短时间内多端口连接尝试、SYN扫描特征、异常端口访问",
+    "mitigation": "网络分段、防火墙规则、入侵检测系统、端口敲门技术"
+  },
+  "T1110": {
+    "name": "Brute Force",
+    "tactics": ["Credential Access"],
+    "description": "攻击者通过暴力破解技术获取账户访问权限。特征：短时间内大量失败登录尝试、针对多个用户名的尝试、非工作时间登录活动。",
+    "platforms": ["Linux", "Windows", "macOS", "Office 365", "SaaS"],
+    "detection": "监控登录失败率、账户锁定事件、异常时间的认证尝试",
+    "mitigation": "账户锁定策略、多因素认证、强密码策略、CAPTCHA"
+  },
+  "T1041": {
+    "name": "Exfiltration Over C2 Channel",
+    "tactics": ["Exfiltration"],
+    "description": "攻击者通过命令与控制通道窃取数据。特征：异常大的出站流量、非标准端口数据传输、加密通道上的异常流量模式。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "监控出站流量异常、非工作时间大数据传输、不寻常的目标IP/端口",
+    "mitigation": "数据丢失防护(DLP)、出站流量过滤、网络分段"
+  },
+  "T1071": {
+    "name": "Application Layer Protocol",
+    "tactics": ["Command and Control"],
+    "description": "攻击者使用应用层协议（HTTP/HTTPS、DNS、WebSocket）进行C2通信。特征：周期性信标连接、异常DNS查询、HTTP请求中的异常User-Agent和Cookie。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "DNS隧道检测、HTTP信标分析、异常User-Agent检测",
+    "mitigation": "DNS安全、HTTPS解密与检查、应用层防火墙"
+  },
+  "T1190": {
+    "name": "Exploit Public-Facing Application",
+    "tactics": ["Initial Access"],
+    "description": "攻击者利用面向公网的应用程序漏洞获取初始访问权限。特征：异常HTTP请求模式、已知漏洞利用载荷、Webshell上传尝试。",
+    "platforms": ["Linux", "Windows", "macOS", "Network"],
+    "detection": "WAF日志分析、异常请求载荷检测、已知漏洞签名匹配",
+    "mitigation": "定期漏洞扫描与修补、WAF部署、最小权限原则"
+  },
+  "T1189": {
+    "name": "Drive-by Compromise",
+    "tactics": ["Initial Access"],
+    "description": "攻击者通过用户访问恶意网站获取访问权限。特征：恶意URL模式、浏览器漏洞利用特征、异常JavaScript执行。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "恶意URL过滤、浏览器沙箱、异常脚本执行监控",
+    "mitigation": "Web过滤、浏览器更新、脚本控制"
+  },
+  "T1204": {
+    "name": "User Execution",
+    "tactics": ["Execution"],
+    "description": "攻击者依赖用户交互来执行恶意代码（钓鱼附件、恶意宏等）。特征：异常文件类型下载、Office文档宏执行、可疑进程链。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "邮件安全网关、附件沙箱分析、端点进程监控",
+    "mitigation": "安全意识培训、禁用不必要的宏、应用白名单"
+  },
+  "T1566": {
+    "name": "Phishing",
+    "tactics": ["Initial Access"],
+    "description": "攻击者通过钓鱼邮件获取凭据或投递恶意软件。特征：伪造发件人、恶意链接、欺骗性域名。",
+    "platforms": ["Linux", "Windows", "macOS", "Office 365", "Google Workspace"],
+    "detection": "SPF/DKIM/DMARC验证、URL信誉检查、邮件内容分析",
+    "mitigation": "邮件安全网关、用户安全意识培训、反钓鱼过滤"
+  },
+  "T1059": {
+    "name": "Command and Scripting Interpreter",
+    "tactics": ["Execution"],
+    "description": "攻击者通过PowerShell、Bash、Python等脚本解释器执行命令。特征：异常的PowerShell编码命令、WMI调用、脚本下载管道。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "PowerShell日志监控、命令行参数分析、脚本执行审计",
+    "mitigation": "PowerShell约束模式、AppLocker、日志集中收集"
+  }
+}
