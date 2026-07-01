@@ -20,6 +20,7 @@ from backend.crosr_engine import CROSREngine
 from backend.orchestrator import Orchestrator
 from backend.rag_engine import RAGEngine
 from backend.xai_engine import XAIEngine
+from backend.capture_engine_2 import CaptureEngine, HAS_SCAPY
 
 # ── Path resolution (works in both dev and PyInstaller) ────────────
 
@@ -102,6 +103,37 @@ def _init_agent_layer():
 
 _init_agent_layer()
 print(f"[✓] Agent layer initialized (mode: {'LLM' if _use_api else 'rule-based'})")
+
+# ── Capture Engine (real packet capture) ─────────────────────────────
+capture_engine = CaptureEngine(
+    on_packet=lambda features, flow_info: _on_captured_packet(features, flow_info)
+)
+print(f"[{'✓' if capture_engine.available else '!'}] Capture engine: "
+      f"{'scapy available' if capture_engine.available else 'scapy not installed (pip install scapy)'}")
+
+# ── Captured packet callback & buffer ────────────────────────────────
+_captured_results = []
+
+def _on_captured_packet(features: np.ndarray, flow_info: dict):
+    """Called by CaptureEngine for each captured packet."""
+    try:
+        result = orchestrator.process_flow(features, flow_info)
+        _captured_results.append({
+            'prediction': result['detection']['prediction'],
+            'confidence': result['detection']['class_confidence'],
+            'isUnknown': result['detection']['is_unknown'],
+            'unknownScore': result['detection'].get('unknown_prob', 0),
+            'srcIp': flow_info.get('src_ip', '0.0.0.0'),
+            'dstIp': flow_info.get('dst_ip', '0.0.0.0'),
+            'protocol': flow_info.get('protocol', 'UNKNOWN'),
+            'timestamp': result['timestamp'],
+            'features': features.tolist(),
+            'rawResult': result,
+            'sourceType': 'captured',
+        })
+    except Exception:
+        pass
+
 
 # ── Static files (React frontend) ─────────────────────────────────────
 
@@ -510,25 +542,68 @@ def create_app():
 @app.route('/api/capture/start', methods=['POST'])
 def start_capture():
     data = request.json or {}
-    interface = data.get('interface', 'lo')
+    # 不传 interface 则 auto-detect；传 'lo' 也 auto-detect (Windows 无 lo)
+    interface = data.get('interface', None)
+    if interface == 'lo':
+        interface = None
+
+    if not capture_engine.available:
+        return jsonify({
+            'success': False,
+            'error': 'scapy 未安装。请运行 pip install scapy 并在 Windows 上安装 Npcap。',
+            'fix': 'pip install scapy',
+        }), 400
+
+    # 显示可用接口供调试
+    ifaces = capture_engine.list_interfaces()
+    success = capture_engine.start(interface=interface)
+    if not success:
+        return jsonify({
+            'success': False,
+            'error': capture_engine.error or '启动捕获失败',
+            'available_interfaces': ifaces,
+        }), 500
+
     orchestrator.is_running = True
     return jsonify({
         'success': True,
-        'message': f'Live detection started on {interface}',
-        'interface': interface,
+        'message': f'数据包捕获已启动 (接口: {capture_engine.interface})',
+        'interface': capture_engine.interface,
+        'available_interfaces': ifaces,
         'timestamp': datetime.now().isoformat()
     })
 
 
 @app.route('/api/capture/status', methods=['GET'])
 def get_capture_status():
-    return jsonify({'success': True, 'data': orchestrator.get_status()})
+    engine_status = capture_engine.get_status()
+    return jsonify({
+        'success': True,
+        'data': {
+            **orchestrator.get_status(),
+            'capture_engine': engine_status,
+        }
+    })
 
 
 @app.route('/api/capture/stop', methods=['POST'])
 def stop_capture():
+    capture_engine.stop()
     orchestrator.is_running = False
-    return jsonify({'success': True, 'message': 'Detection stopped', 'timestamp': datetime.now().isoformat()})
+    _captured_results.clear()
+    return jsonify({'success': True, 'message': '捕获已停止', 'timestamp': datetime.now().isoformat()})
+
+
+@app.route('/api/capture/packets', methods=['GET'])
+def get_captured_packets():
+    """Return captured packets since last poll and clear the buffer."""
+    packets = list(_captured_results)
+    _captured_results.clear()
+    return jsonify({
+        'success': True,
+        'data': packets,
+        'count': len(packets),
+    })
 
 
 @app.route('/api/capture/inject', methods=['POST'])
@@ -598,6 +673,10 @@ def get_session_stats():
 def reset_session_stats():
     orchestrator.reset_stats()
     return jsonify({'success': True})
+
+
+# Also update _captured_results field name reference
+
 
 
 if __name__ == '__main__':

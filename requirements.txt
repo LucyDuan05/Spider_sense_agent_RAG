@@ -22,4 +22,4 @@ waitress>=2.0.0  # Windows-friendly WSGI server
 requests>=2.25.0
 
 # Optional: Packet capture (for live capture)
-# scapy>=2.4.0  # requires npcap on Windows
+scapy>=2.4.0  # requires npcap on Windows

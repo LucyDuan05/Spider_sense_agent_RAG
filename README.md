@@ -7,17 +7,17 @@ For pythong interfaces to work, you would require Cython to be pre-installed
 on your machine
 ```bash
 cd /home/u2023311329/jupyterlab/CROSR-main/libMR/
-# Spider-Sense v2 ¡ª ¿ìËÙÉÏÊÖ
+# Spider-Sense v2 â€” å¿«é€Ÿä¸Šæ‰‹
 
-ÕâÊÇ Spider-Sense v2£¨»ùÓÚ CROSR Ë¼Â·¸ÄÔìµÄÍøÂçÈëÇÖ¼ì²âÏµÍ³£©µÄ´úÂë²Ö¿â¸±±¾£¬ÒÑ¾«¼òÎª¿ÉÖ±½ÓÔËĞĞµÄ×ÀÃæ/±¾µØ·şÎñĞÎÌ¬¡£
+è¿™æ˜¯ Spider-Sense v2ï¼ˆåŸºäº CROSR æ€è·¯æ”¹é€ çš„ç½‘ç»œå…¥ä¾µæ£€æµ‹ç³»ç»Ÿï¼‰çš„ä»£ç ä»“åº“å‰¯æœ¬ï¼Œå·²ç²¾ç®€ä¸ºå¯ç›´æ¥è¿è¡Œçš„æ¡Œé¢/æœ¬åœ°æœåŠ¡å½¢æ€ã€‚
 
-¼ò¶ÌËµÃ÷£ººó¶ËÎª Flask API£¬Ç°¶ËÎª React µ¥Ò³Ó¦ÓÃ£»¼ì²âÒıÇæÊ¹ÓÃ DHRNet-1D + Weibull/OpenMax£¨´¿ Python ÊµÏÖ£©£¬²¢Ö§³Ö¿ÉÑ¡µÄ LLM Agent¡¢RAG ºÍ XAI¡£
+ç®€çŸ­è¯´æ˜ï¼šåç«¯ä¸º Flask APIï¼Œå‰ç«¯ä¸º React å•é¡µåº”ç”¨ï¼›æ£€æµ‹å¼•æ“ä½¿ç”¨ DHRNet-1D + Weibull/OpenMaxï¼ˆçº¯ Python å®ç°ï¼‰ï¼Œå¹¶æ”¯æŒå¯é€‰çš„ LLM Agentã€RAG å’Œ XAIã€‚
 
-ÖØÒª£º²Ö¿âÖĞ±£ÁôÁËÄ£ĞÍÄ¿Â¼£¨`models/`£©ºÍ´¦ÀíºóµÄÊı¾İÄ¿Â¼£¨`processed_*/`£©£¬ÕâĞ©¿ÉÄÜºÜ´ó£¬½¨Òé²»ÒªÖ±½ÓÍÆËÍµ½Ô¶³Ì²Ö¿â£¨¿ÉÓÃ release »òÍâ²¿´æ´¢£©¡£
+é‡è¦ï¼šä»“åº“ä¸­ä¿ç•™äº†æ¨¡å‹ç›®å½•ï¼ˆ`models/`ï¼‰å’Œå¤„ç†åçš„æ•°æ®ç›®å½•ï¼ˆ`processed_*/`ï¼‰ï¼Œè¿™äº›å¯èƒ½å¾ˆå¤§ï¼Œå»ºè®®ä¸è¦ç›´æ¥æ¨é€åˆ°è¿œç¨‹ä»“åº“ï¼ˆå¯ç”¨ release æˆ–å¤–éƒ¨å­˜å‚¨ï¼‰ã€‚
 
-¿ìËÙÆô¶¯
+å¿«é€Ÿå¯åŠ¨
 
-1) ´´½¨²¢¼¤»î»·¾³£¨ÍÆ¼ö Conda£©
+1) åˆ›å»ºå¹¶æ¿€æ´»ç¯å¢ƒï¼ˆæ¨è Condaï¼‰
 
 ```bash
 conda create -n openmax python=3.10 -y
@@ -25,7 +25,7 @@ conda activate openmax
 pip install -r requirements.txt
 ```
 
-»òÊ¹ÓÃ venv£º
+æˆ–ä½¿ç”¨ venvï¼š
 
 ```bash
 python -m venv .venv
@@ -33,7 +33,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2) £¨½öÔÚĞŞ¸ÄÇ°¶ËÊ±£©¹¹½¨Ç°¶Ë£º
+2) ï¼ˆä»…åœ¨ä¿®æ”¹å‰ç«¯æ—¶ï¼‰æ„å»ºå‰ç«¯ï¼š
 
 ```bash
 cd web-frontend
@@ -42,27 +42,27 @@ npm run build
 cd ..
 ```
 
-3) Æô¶¯·şÎñ£¨¿ª·¢£©£º
+3) å¯åŠ¨æœåŠ¡ï¼ˆå¼€å‘ï¼‰ï¼š
 
 ```bash
 python main.py --no-browser
-# Spider-Sense v2 ¡ª ÏîÄ¿¼ò½é
+# Spider-Sense v2 â€” é¡¹ç›®ç®€ä»‹
 
-¼òÒª£ºSpider-Sense v2 ÊÇ»ùÓÚ CROSR Ë¼Â·µÄ¿ª·Å¼¯ÍøÂçÈëÇÖ¼ì²âÏµÍ³£¨DHRNet-1D + Weibull/OpenMax£©£¬À©Õ¹ÁË¶àÖÇÄÜÌå±çÂÛ¡¢RAG ÖªÊ¶¼ìË÷Óë XAI ¿É½âÊÍÄ£¿é¡£ºó¶ËÎª Flask API£¬Ç°¶ËÎª React µ¥Ò³Ó¦ÓÃ£¬ÏîÄ¿Éè¼ÆÎª±¾µØ·şÎñ/×ÀÃæ¿ÉÖ´ĞĞÔ­ĞÍ¡£
+ç®€è¦ï¼šSpider-Sense v2 æ˜¯åŸºäº CROSR æ€è·¯çš„å¼€æ”¾é›†ç½‘ç»œå…¥ä¾µæ£€æµ‹ç³»ç»Ÿï¼ˆDHRNet-1D + Weibull/OpenMaxï¼‰ï¼Œæ‰©å±•äº†å¤šæ™ºèƒ½ä½“è¾©è®ºã€RAG çŸ¥è¯†æ£€ç´¢ä¸ XAI å¯è§£é‡Šæ¨¡å—ã€‚åç«¯ä¸º Flask APIï¼Œå‰ç«¯ä¸º React å•é¡µåº”ç”¨ï¼Œé¡¹ç›®è®¾è®¡ä¸ºæœ¬åœ°æœåŠ¡/æ¡Œé¢å¯æ‰§è¡ŒåŸå‹ã€‚
 
-×´Ì¬£ººËĞÄºó¶ËÓëÇ°¶ËÒÑÊµÏÖ£¬¿ÉÔÚ±¾µØÔËĞĞ¡£LLM Agent Îª¿ÉÑ¡¹¦ÄÜ£¬ĞèÅäÖÃµÚÈı·½¼æÈİ OpenAI Chat API µÄ·şÎñÓë API Key¡£
+çŠ¶æ€ï¼šæ ¸å¿ƒåç«¯ä¸å‰ç«¯å·²å®ç°ï¼Œå¯åœ¨æœ¬åœ°è¿è¡Œã€‚LLM Agent ä¸ºå¯é€‰åŠŸèƒ½ï¼Œéœ€é…ç½®ç¬¬ä¸‰æ–¹å…¼å®¹ OpenAI Chat API çš„æœåŠ¡ä¸ API Keyã€‚
 
-¿ìËÙÆô¶¯£¨×îĞ¡²½Öè£©
+å¿«é€Ÿå¯åŠ¨ï¼ˆæœ€å°æ­¥éª¤ï¼‰
 
 ```bash
 conda create -n openmax python=3.10 -y
 conda activate openmax
 pip install -r requirements.txt
 python main.py --no-browser
-# ´ò¿ª http://127.0.0.1:5000
+# æ‰“å¼€ http://127.0.0.1:5000
 ```
 
-ÈçĞèĞŞ¸ÄÇ°¶Ë£º
+å¦‚éœ€ä¿®æ”¹å‰ç«¯ï¼š
 
 ```bash
 cd web-frontend
@@ -71,47 +71,47 @@ npm run build
 cd ..
 ```
 
-LLM Ä£Ê½£¨¿ÉÑ¡£©
+LLM æ¨¡å¼ï¼ˆå¯é€‰ï¼‰
 
-ÔÚÆô¶¯Ê±´«Èë API Key£¬»òÔÚÇ°¶Ë `LLM ÅäÖÃ` Ãæ°åÌîĞ´£º
+åœ¨å¯åŠ¨æ—¶ä¼ å…¥ API Keyï¼Œæˆ–åœ¨å‰ç«¯ `LLM é…ç½®` é¢æ¿å¡«å†™ï¼š
 
 ```bash
 python main.py --llm-api-key "YOUR_KEY" --llm-model "deepseek-v4-flash" --llm-api-base "https://api.deepseek.com/v1"
 ```
 
-ÏîÄ¿½á¹¹£¨ÖØÒªÄ¿Â¼£©
+é¡¹ç›®ç»“æ„ï¼ˆé‡è¦ç›®å½•ï¼‰
 
 ```
 CROSR-main/
-©À©¤ main.py
-©À©¤ backend/                # Flask API ÓëÒµÎñÂß¼­
-©À©¤ web-frontend/           # React Ç°¶Ë
-©À©¤ models/                 # ±¾µØÄ£ĞÍÈ¨ÖØ£¨Çë²»ÒªÖ±½ÓÌá½»µ½ Git£©
-©¦  ©À©¤ weibull_om/
-©¦  ©¦  ©À©¤ model.pth
-©¦  ©¦  ©¸©¤ detector.pkl
-©¦  ©¸©¤ (Transformer ¼ì²âÆ÷ÒÑÒÆ³ı)
-©À©¤ knowledge/              # RAG ÖªÊ¶¿â£¨¹¥»÷Ä£Ê½Óë MITRE£©
-©À©¤ processed_cicids/       # ´¦ÀíºóµÄÊı¾İÑù±¾
-©¸©¤ requirements.txt
+â”œâ”€ main.py
+â”œâ”€ backend/                # Flask API ä¸ä¸šåŠ¡é€»è¾‘
+â”œâ”€ web-frontend/           # React å‰ç«¯
+â”œâ”€ models/                 # æœ¬åœ°æ¨¡å‹æƒé‡ï¼ˆè¯·ä¸è¦ç›´æ¥æäº¤åˆ° Gitï¼‰
+â”‚  â”œâ”€ weibull_om/
+â”‚  â”‚  â”œâ”€ model.pth
+â”‚  â”‚  â””â”€ detector.pkl
+â”‚  â””â”€ (Transformer æ£€æµ‹å™¨å·²ç§»é™¤)
+â”œâ”€ knowledge/              # RAG çŸ¥è¯†åº“ï¼ˆæ”»å‡»æ¨¡å¼ä¸ MITREï¼‰
+â”œâ”€ processed_cicids/       # å¤„ç†åçš„æ•°æ®æ ·æœ¬
+â””â”€ requirements.txt
 ```
 
-¿É¶ÔÍâÌá¹©µÄÄ£ĞÍÓëÊı¾İ£¨½¨ÒéÍ¨¹ı release »òÍâ²¿´æ´¢·¢ËÍ£©
+å¯å¯¹å¤–æä¾›çš„æ¨¡å‹ä¸æ•°æ®ï¼ˆå»ºè®®é€šè¿‡ release æˆ–å¤–éƒ¨å­˜å‚¨å‘é€ï¼‰
 
-- `models/weibull_om/model.pth` ¡ª¡ª DHRNet-1D È¨ÖØ£¨ÓÃÓÚÍÆÀí£©
-- `models/weibull_om/detector.pkl` ¡ª¡ª OpenMax/Weibull ÄâºÏÆ÷
-`save_models/*/best.pth` »ò `save_models/cicids_1d/best.pth` ¡ª¡ª ÑµÁ·¼ì²éµã£¨°´Êı¾İ¼¯Ñ¡È¡£©
-- `save_models/*/best.pth` »ò `save_models/cicids_1d/best.pth` ¡ª¡ª ÑµÁ·¼ì²éµã£¨°´Êı¾İ¼¯Ñ¡È¡£©
-- ÈôĞèÒªÖØ½¨ RAG/ÊµÑéÊı¾İ£º`saved_features/`¡¢`saved_MAVs/`¡¢`saved_distance_scores/` ¿É´ò°üÌá¹©
+- `models/weibull_om/model.pth` â€”â€” DHRNet-1D æƒé‡ï¼ˆç”¨äºæ¨ç†ï¼‰
+- `models/weibull_om/detector.pkl` â€”â€” OpenMax/Weibull æ‹Ÿåˆå™¨
+`save_models/*/best.pth` æˆ– `save_models/cicids_1d/best.pth` â€”â€” è®­ç»ƒæ£€æŸ¥ç‚¹ï¼ˆæŒ‰æ•°æ®é›†é€‰å–ï¼‰
+- `save_models/*/best.pth` æˆ– `save_models/cicids_1d/best.pth` â€”â€” è®­ç»ƒæ£€æŸ¥ç‚¹ï¼ˆæŒ‰æ•°æ®é›†é€‰å–ï¼‰
+- è‹¥éœ€è¦é‡å»º RAG/å®éªŒæ•°æ®ï¼š`saved_features/`ã€`saved_MAVs/`ã€`saved_distance_scores/` å¯æ‰“åŒ…æä¾›
 
-ËµÃ÷£ºÕâĞ©ÎÄ¼şÍ¨³£½Ï´ó£¬²»½¨ÒéÄÉÈëÔ´Âë²Ö¿â¡£½¨ÒéÍ¨¹ı GitHub Release¡¢¹²ÏíÇı¶¯»òÅäÖÃ Git LFS ´«Êä¡£
+è¯´æ˜ï¼šè¿™äº›æ–‡ä»¶é€šå¸¸è¾ƒå¤§ï¼Œä¸å»ºè®®çº³å…¥æºç ä»“åº“ã€‚å»ºè®®é€šè¿‡ GitHub Releaseã€å…±äº«é©±åŠ¨æˆ–é…ç½® Git LFS ä¼ è¾“ã€‚
 
-ÈÕÖ¾ÓëÅÅ´íÒªµã
+æ—¥å¿—ä¸æ’é”™è¦ç‚¹
 
-- ½¡¿µ¼ì²é£ºGET `/api/health`
-- ³£¼ûÎÊÌâ£ºLLM µ÷ÓÃÊ§°ÜÍ¨³£Îª API Key »òÈ¨ÏŞÎÊÌâ£¬ºó¶Ë»áÔÚÈÕÖ¾Êä³ö `[LLM DEBUG]` ÏêÇé¡£
-- ´ò°ü×¢Òâ£ºÉú³É Windows `.exe` ±ØĞëÔÚ Windows »·¾³ÓÃ PyInstaller ¹¹½¨¡£
+- å¥åº·æ£€æŸ¥ï¼šGET `/api/health`
+- å¸¸è§é—®é¢˜ï¼šLLM è°ƒç”¨å¤±è´¥é€šå¸¸ä¸º API Key æˆ–æƒé™é—®é¢˜ï¼Œåç«¯ä¼šåœ¨æ—¥å¿—è¾“å‡º `[LLM DEBUG]` è¯¦æƒ…ã€‚
+- æ‰“åŒ…æ³¨æ„ï¼šç”Ÿæˆ Windows `.exe` å¿…é¡»åœ¨ Windows ç¯å¢ƒç”¨ PyInstaller æ„å»ºã€‚
 
-ÁªÏµÓëºóĞø
+è”ç³»ä¸åç»­
 
-ÈçĞèÎÒÎª½ÓÊÖÈË´ò°üÒ»·İ°üº¬Ä£ĞÍµÄ release£¨»òÉú³É Git LFS ÅäÖÃ£©£¬ÎÒ¿ÉÒÔ×¼±¸ÉÏ´«½Å±¾ÓëËµÃ÷¡£
+å¦‚éœ€æˆ‘ä¸ºæ¥æ‰‹äººæ‰“åŒ…ä¸€ä»½åŒ…å«æ¨¡å‹çš„ releaseï¼ˆæˆ–ç”Ÿæˆ Git LFS é…ç½®ï¼‰ï¼Œæˆ‘å¯ä»¥å‡†å¤‡ä¸Šä¼ è„šæœ¬ä¸è¯´æ˜ã€‚

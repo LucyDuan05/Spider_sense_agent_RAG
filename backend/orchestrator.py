@@ -75,22 +75,32 @@ class Orchestrator:
         # Step 1: Detection
         detection = self.engine.predict(features, return_details=True)
 
-        # Step 2: RAG enrichment
-        rag_result = None
-        if detection['is_anomaly']:
-            rag_result = self.rag.search(
-                embedding=self.engine.extract_features(features)['embedding'][0],
-                top_k=3
-            )
+        # ── 分层分析策略 ────────────────────────────────────────────
+        #
+        # anomaly_type  'benign'        → 真正良性, 跳过分析
+        #               'known_attack'  → 已知攻击, 全量分析
+        #               'unknown'       → 零日/未知攻击, 全量分析
+        #
+        need_analysis = detection.get('anomaly_type', 'unknown') in ('known_attack', 'unknown')
 
-        # Step 3: XAI explanation
+        # Step 2: RAG enrichment (用 predict 已算好的缓存 embedding, 避免二次前向)
+        rag_result = None
+        if need_analysis:
+            cached_emb = detection.get('embedding')
+            if cached_emb:
+                rag_result = self.rag.search(
+                    embedding=np.array(cached_emb, dtype=np.float32),
+                    top_k=3
+                )
+
+        # Step 3: XAI explanation (for all anomalies)
         xai_result = None
-        if detection['is_anomaly']:
+        if need_analysis:
             xai_result = self.xai.explain(features, self.engine)
 
-        # Step 4: Agent debate (for anomalies only)
+        # Step 4: Agent debate (for all anomalies)
         agent_result = None
-        if detection['is_anomaly'] and self.agent_layer:
+        if need_analysis and self.agent_layer:
             try:
                 agent_result = self.agent_layer.debate(
                     detection_result=detection,

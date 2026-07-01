@@ -15,6 +15,7 @@ interface EventItem {
   protocol: string;
   features: number[];
   rawResult: any;
+  sourceType: 'simulated' | 'injected' | 'captured';  // 数据来源
 }
 
 const PROTOCOLS = ['TCP', 'UDP', 'HTTP', 'DNS'];
@@ -29,6 +30,11 @@ function genFeatures(type: string): number[] {
   return base;
 }
 
+// BENIGN → NORMAL display mapping (不影响后端)
+function displayLabel(label: string): string {
+  return label === 'BENIGN' ? 'NORMAL' : label;
+}
+
 function App() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selected, setSelected] = useState<EventItem | null>(null);
@@ -40,18 +46,66 @@ function App() {
   const [attackCount, setAttackCount] = useState(8);
   const [captureMessage, setCaptureMessage] = useState('');
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureStats, setCaptureStats] = useState<any>(null);
+  const [availableInterfaces, setAvailableInterfaces] = useState<{name: string; ip: string; description: string}[]>([]);
+  const [selectedInterface, setSelectedInterface] = useState('');
+
+  const attackTypes = ['DDoS', 'DoS Hulk', 'PortScan', 'FTP-Patator', 'SSH-Patator', 'Unknown Attack'];
+
+  // ── 抓包轮询 ──
+  const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nextId = useRef(1);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [drawerData, setDrawerData] = useState<any>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
   const [llmEnabled, setLlmEnabled] = useState(false);
   const [llmModel, setLlmModel] = useState('gpt-4');
   const [llmApiBase, setLlmApiBase] = useState('https://api.openai.com/v1');
   const [llmApiKey, setLlmApiKey] = useState('');
   const [llmMessage, setLlmMessage] = useState('');
   const [llmError, setLlmError] = useState<string | null>(null);
-  const nextId = useRef(1);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [drawerData, setDrawerData] = useState<any>(null);
-  const [drawerLoading, setDrawerLoading] = useState(false);
 
-  const attackTypes = ['DDoS', 'DoS Hulk', 'PortScan', 'FTP-Patator', 'SSH-Patator', 'Unknown Attack'];
+  useEffect(() => {
+    if (captureRunning) {
+      // 每 2 秒轮询一次抓包结果
+      captureTimerRef.current = setInterval(async () => {
+        try {
+          const [packetResp, statusResp] = await Promise.all([
+            axios.get('/api/capture/packets'),
+            axios.get('/api/capture/status'),
+          ]);
+          if (statusResp.data?.success) {
+            setCaptureStats(statusResp.data.data.capture_engine);
+          }
+          if (packetResp.data?.success && packetResp.data.data.length > 0) {
+            setEvents(prev => [
+              ...packetResp.data.data.map((item: any) => ({
+                id: nextId.current++,
+                timestamp: item.timestamp || new Date().toISOString(),
+                prediction: item.prediction,
+                confidence: item.confidence,
+                isUnknown: item.isUnknown,
+                unknownScore: item.unknownScore,
+                srcIp: item.srcIp,
+                dstIp: item.dstIp,
+                protocol: item.protocol,
+                features: item.features || [],
+                rawResult: item.rawResult || {},
+                sourceType: 'captured' as const,
+              })),
+              ...prev,
+            ].slice(0, 500));
+          }
+        } catch {}
+      }, 2000);
+    }
+    return () => {
+      if (captureTimerRef.current) {
+        clearInterval(captureTimerRef.current);
+        captureTimerRef.current = null;
+      }
+    };
+  }, [captureRunning]);
 
   const runOne = useCallback(async () => {
     let features: number[];
@@ -77,6 +131,7 @@ function App() {
           isUnknown: det.is_unknown,
           unknownScore: det.unknown_prob || 0,
           srcIp: src, dstIp: dst, protocol: proto, features, rawResult: resp.data.data,
+          sourceType: 'simulated' as const,
         }, ...prev].slice(0, 500));
       }
     } catch {}
@@ -90,13 +145,19 @@ function App() {
   const startCapture = async () => {
     try {
       setCaptureError(null);
-      const resp = await axios.post('/api/capture/start', { interface: 'lo' });
+      // 不传 interface，由后端 auto-detect（Windows 没有 lo 接口）
+      const resp = await axios.post('/api/capture/start', {
+        interface: selectedInterface || undefined,
+      });
       if (resp.data?.success) {
         setCaptureRunning(true);
-        setCaptureMessage(resp.data.message || '捕获已启动');
+        const iface = resp.data.interface || 'auto';
+        setCaptureMessage(`捕获已启动 (${iface})`);
+      } else {
+        setCaptureError(resp.data?.error || '启动捕获失败');
       }
     } catch (err: any) {
-      setCaptureError(err?.response?.data?.error || '启动捕获失败');
+      setCaptureError(err?.response?.data?.error || '启动捕获失败，请检查 Npcap 是否已安装');
     }
   };
 
@@ -136,6 +197,7 @@ function App() {
             protocol: item.protocol,
             features: item.features || [],
             rawResult: item.rawResult || {},
+            sourceType: 'injected' as const,
           })),
           ...prev,
         ].slice(0, 500));
@@ -161,6 +223,18 @@ function App() {
     }
   };
 
+    // ── 加载可用网卡列表 ──
+  const loadInterfaces = async () => {
+    try {
+      const resp = await axios.get('/api/capture/status');
+      const ifaces = resp.data?.data?.capture_engine?.available_interfaces;
+      if (ifaces && ifaces.length > 0) {
+        setAvailableInterfaces(ifaces);
+        if (!selectedInterface) setSelectedInterface(ifaces[0].name);
+      }
+    } catch {}
+  };
+
   const saveLlmConfig = async () => {
     try {
       setLlmError(null);
@@ -181,6 +255,7 @@ function App() {
 
   useEffect(() => {
     loadLlmConfig();
+    loadInterfaces();
   }, []);
 
   const handleSelect = async (ev: EventItem) => {
@@ -220,7 +295,13 @@ function App() {
           <div className="topbar-stat"><div className="val">{stats.total}</div><div className="lbl">检测事件</div></div>
           <div className="topbar-stat"><div className="val" style={{ color: stats.critical > 0 ? 'var(--red)' : 'var(--green)' }}>{stats.critical}</div><div className="lbl">未知威胁</div></div>
           <div className="topbar-stat"><div className="val" style={{ color: stats.attack > 0 ? 'var(--yellow)' : 'var(--text)' }}>{stats.attack}</div><div className="lbl">已知攻击</div></div>
-          <div className="topbar-stat"><div className="val">{stats.benign}</div><div className="lbl">正常流量</div></div>
+          <div className="topbar-stat"><div className="val" style={{ color: stats.benign > 0 ? 'var(--green)' : 'var(--text)' }}>{stats.benign}</div><div className="lbl">正常流量</div></div>
+          {llmEnabled && (
+            <div className="topbar-stat">
+              <div className="val" style={{ fontSize: 13, color: '#00d4ff' }}>🤖 LLM</div>
+              <div className="lbl">{llmModel}</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -235,13 +316,30 @@ function App() {
 
           <div style={{ marginTop: 12 }}>
             <button className={running ? '' : 'active'} onClick={() => setRunning(!running)} style={{ textAlign: 'center' }}>
-              {running ? '⏹ 停止检测' : '▶ 开始检测'}
+              {running ? '⏹ 停止模拟' : '▶ 开始模拟数据'}
             </button>
           </div>
           {running && <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 4 }}>● 检测中</div>}
 
           <div className="section-title" style={{ marginTop: 20 }}>真实注入</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* 网卡选择 */}
+            {availableInterfaces.length > 0 && !captureRunning && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 9, color: 'var(--muted)' }}>选择网卡</div>
+                <select
+                  value={selectedInterface}
+                  onChange={e => setSelectedInterface(e.target.value)}
+                  style={{ width: '100%', padding: 6, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 10 }}
+                >
+                  {availableInterfaces.map(iface => (
+                    <option key={iface.name} value={iface.name}>
+                      {iface.name} ({iface.ip})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button
               className={captureRunning ? '' : 'active'}
               onClick={captureRunning ? stopCapture : startCapture}
@@ -267,6 +365,12 @@ function App() {
             </button>
             {captureMessage && <div style={{ fontSize: 10, color: 'var(--text)', marginTop: 4 }}>{captureMessage}</div>}
             {captureError && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}>{captureError}</div>}
+            {captureRunning && captureStats && (
+              <div style={{ fontSize: 9, color: 'var(--muted)', lineHeight: 1.6, marginTop: 2 }}>
+                接口: {captureStats.interface || 'N/A'} · 包: {captureStats.captured_count || 0}
+                {captureStats.error && <div style={{ color: 'var(--red)' }}>错误: {captureStats.error}</div>}
+              </div>
+            )}
           </div>
 
           <div className="section-title" style={{ marginTop: 20 }}>LLM 配置</div>
@@ -301,6 +405,10 @@ function App() {
             </button>
             {llmMessage && <div style={{ fontSize: 10, color: 'var(--text)', marginTop: 4 }}>{llmMessage}</div>}
             {llmError && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}>{llmError}</div>}
+            {/* 安全提示 */}
+            <div style={{ fontSize: 9, color: 'var(--muted)', lineHeight: 1.6, padding: '4px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
+              🔒 API Key 仅在当前会话内存中保存，<b>重启后自动清除</b>，不会写入磁盘。
+            </div>
           </div>
 
           {/* Tech highlights */}
@@ -348,7 +456,7 @@ function App() {
                 <p>🔹 <b>多智能体辩论</b> — 检测员/分析师/裁决官三个 Agent 独立研判、投票裁决每条告警</p>
                 <p>🔹 <b>RAG 知识增强</b> — 68 条攻击模式向量 + 10 项 MITRE ATT&CK 技术，检索相似案例辅助判断</p>
                 <p>🔹 <b>XAI 可解释</b> — 特征扰动归因分析，揭示哪些流量特征驱动了检测决策</p>
-                <p style={{ marginTop: 8 }}>点击左侧「开始检测」或选择数据源，即可体验完整检测流程。</p>
+                <p style={{ marginTop: 8 }}>点击左侧「开始模拟数据」或选择数据源，即可体验检测流程。回放和抓包数据会标注来源。</p>
               </div>
             </div>
           ) : (
@@ -363,7 +471,7 @@ function App() {
                 </div>
                 <div className="info">
                   <div className="label">
-                    {ev.prediction}
+                    {displayLabel(ev.prediction)}
                     {ev.isUnknown && <span style={{ color: 'var(--yellow)', fontSize: 10, marginLeft: 6 }}>未知攻击</span>}
                   </div>
                   <div className="flow">{ev.srcIp} → {ev.dstIp} &middot; {ev.protocol}</div>
@@ -372,6 +480,10 @@ function App() {
                   <div className="time">{ev.timestamp.split('T')[1]?.split('.')[0] || ev.timestamp}</div>
                   <span className={`tag ${ev.prediction === 'BENIGN' ? 'tag-green' : ev.isUnknown ? 'tag-yellow' : 'tag-red'}`}>
                     {(ev.confidence * 100).toFixed(0)}%
+                  </span>
+                  {/* 数据来源标签 */}
+                  <span className={`source-tag source-${ev.sourceType}`}>
+                    {ev.sourceType === 'simulated' ? '模拟' : ev.sourceType === 'injected' ? '回放' : '捕获'}
                   </span>
                 </div>
               </div>
@@ -387,7 +499,7 @@ function App() {
           <>
             <div className="drawer-header">
               <div>
-                <h2>{selected.prediction}{selected.isUnknown ? ' (未知攻击)' : ''}</h2>
+                <h2>{displayLabel(selected.prediction)}{selected.isUnknown ? ' (未知攻击)' : ''}</h2>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                   {selected.srcIp} → {selected.dstIp} &middot; {selected.protocol} &middot; {selected.timestamp.split('T')[1]?.split('.')[0]}
                 </div>
