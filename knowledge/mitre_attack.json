@@ -78,5 +78,157 @@
     "platforms": ["Linux", "Windows", "macOS"],
     "detection": "PowerShell日志监控、命令行参数分析、脚本执行审计",
     "mitigation": "PowerShell约束模式、AppLocker、日志集中收集"
+  },
+  "T1499": {
+    "name": "Endpoint Denial of Service",
+    "tactics": ["Impact"],
+    "description": "攻击者通过耗尽目标系统CPU、内存或磁盘资源来实施端点拒绝服务攻击。特征：异常高的进程创建率、内存泄漏、磁盘I/O饱和。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "系统资源监控、进程异常行为检测、资源配额告警",
+    "mitigation": "资源限制、自动扩展、DDoS防护服务"
+  },
+  "T1499.001": {
+    "name": "OS Exhaustion Flood",
+    "tactics": ["Impact"],
+    "description": "攻击者通过大量连接请求淹没操作系统，消耗内核内存和进程表。特征：大量SYN半开连接、进程表溢出、系统响应变慢。",
+    "platforms": ["Linux", "Windows"],
+    "detection": "监控半开连接数、系统进程表使用率、连接超时率",
+    "mitigation": "SYN Cookies、连接限制、内核参数调优"
+  },
+  "T1499.002": {
+    "name": "Service Exhaustion Flood",
+    "tactics": ["Impact"],
+    "description": "攻击者通过生成大量合法请求来耗尽应用层服务器资源。特征：HTTP 503错误激增、请求队列积压、CPU使用率突增。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "HTTP错误率监控、请求队列深度监控、响应时间异常",
+    "mitigation": "速率限制、负载均衡、自动扩容、请求队列管理"
+  },
+  "T1046.001": {
+    "name": "TCP Connect Scan",
+    "tactics": ["Discovery"],
+    "description": "攻击者执行完整的TCP三次握手扫描来发现开放端口。特征：对多个端口的完整TCP连接、连接超时后重试、端口范围扫描。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "监控短时间内到多个端口的完整TCP连接、连接日志审计",
+    "mitigation": "端口敲门、非标准端口配置、主机防火墙规则"
+  },
+  "T1046.002": {
+    "name": "SYN Scan",
+    "tactics": ["Discovery"],
+    "description": "攻击者发送SYN包后不完成握手，隐蔽性更高的端口扫描。特征：大量SYN包没有对应的SYN-ACK或RST、同一源IP短时间内扫描多端口。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "SYN包比例异常分析、不完整连接检测、端口扫描检测引擎",
+    "mitigation": "SYN Cookie、端口敲门、IDS/IPS规则"
+  },
+  "T1110.001": {
+    "name": "Password Guessing",
+    "tactics": ["Credential Access"],
+    "description": "攻击者在没有系统信息的情况下尝试猜测用户密码。特征：对已知用户名的多次登录尝试、常见密码列表尝试、登录频率异常。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "多次失败登录告警、账户锁定事件、登录来源IP审计",
+    "mitigation": "复杂密码策略、账户锁定阈值、多因素认证"
+  },
+  "T1110.002": {
+    "name": "Password Cracking",
+    "tactics": ["Credential Access"],
+    "description": "攻击者对捕获的密码散列值执行离线破解。特征：高CPU/GPU使用率、大量磁盘读取、密码散列字典文件。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "监控异常的CPU/GPU使用、密码散列文件访问审计、暴力破解工具检测",
+    "mitigation": "强密码散列算法（bcrypt/Argon2）、定期密码轮换、凭据管理"
+  },
+  "T1110.003": {
+    "name": "Password Spraying",
+    "tactics": ["Credential Access"],
+    "description": "攻击者对多个账户尝试同一个常用密码，绕过锁定策略。特征：每个账户只试1-2次、跨大量账户的失败登录、非工作时间频繁尝试。",
+    "platforms": ["Linux", "Windows", "macOS", "Office 365", "SaaS"],
+    "detection": "跨账户的单次登录失败、异常时间的认证请求、地理不一致的登录",
+    "mitigation": "多因素认证、异常登录检测、CAEP持续评估"
+  },
+  "T1110.004": {
+    "name": "Credential Stuffing",
+    "tactics": ["Credential Access"],
+    "description": "攻击者使用已泄露的用户名/密码对尝试访问新系统。特征：高频自动化登录、同一IP大量认证请求、不同账户相似登录模式。",
+    "platforms": ["Linux", "Windows", "macOS", "Office 365", "SaaS"],
+    "detection": "自动化工具指纹检测、登录频率分析、IP信誉检查",
+    "mitigation": "验证码、行为分析、已被泄露密码检查、自适应认证"
+  },
+  "T1021": {
+    "name": "Remote Services",
+    "tactics": ["Lateral Movement"],
+    "description": "攻击者使用有效账户登录到远程服务（SSH、RDP、SMB）进行横向移动。特征：异常的内部远程登录、非工作时间远程访问、源自非管理主机的管理协议。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "远程登录事件审计、异常来源IP的远程连接、会话时长分析",
+    "mitigation": "网络分段、跳板机、JIT权限管理、零信任架构"
+  },
+  "T1021.004": {
+    "name": "SSH",
+    "tactics": ["Lateral Movement"],
+    "description": "攻击者使用SSH协议进行横向移动，常在暴力破解凭据后实施。特征：异常的SSH登录尝试、非标准端口的SSH服务、SSH隧道检测。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "SSH登录审计、异常SSH会话时长、SSH隧道流量检测",
+    "mitigation": "SSH密钥认证、禁止密码登录、fail2ban、网络准入控制"
+  },
+  "T1021.002": {
+    "name": "SMB/Windows Admin Shares",
+    "tactics": ["Lateral Movement"],
+    "description": "攻击者使用SMB协议访问Windows远程系统的管理员共享。特征：异常的SMB连接、ADMIN$或IPC$访问、SMB版本协商异常。",
+    "platforms": ["Windows"],
+    "detection": "SMB连接日志审计、管理共享访问监控、SMB版本检测",
+    "mitigation": "禁用不必要的管理共享、SMB签名、防火墙规则、账户最小权限"
+  },
+  "T1568": {
+    "name": "Dynamic Resolution",
+    "tactics": ["Command and Control"],
+    "description": "攻击者使用动态DNS服务解析C2服务器地址以绕过IP黑名单。特征：频繁的DDNS查询、异常的子域名生成算法、高频率域名解析变化。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "DDNS域名监控、域名生成算法（DGA）检测、频繁DNS查询分析",
+    "mitigation": "威胁情报馈送、DNS过滤、恶意域名拦截"
+  },
+  "T1573": {
+    "name": "Encrypted Channel",
+    "tactics": ["Command and Control"],
+    "description": "攻击者使用加密通道隐藏C2流量。特征：异常的TLS证书特征、自签名证书、非标准TLS扩展、加密流量指纹异常。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "TLS证书分析、JA3/S指纹识别、加密流量元数据分析",
+    "mitigation": "SSL/TLS解密代理、证书固定、流量基线分析"
+  },
+  "T1003": {
+    "name": "OS Credential Dumping",
+    "tactics": ["Credential Access"],
+    "description": "攻击者从LSASS、SAM、NTDS等系统组件中转储凭据。特征：LSASS进程内存访问、卷影副本创建、Mimikatz工具特征。",
+    "platforms": ["Windows"],
+    "detection": "LSASS访问告警、敏感进程调试检测、凭据转储工具签名",
+    "mitigation": "Credential Guard、LSA保护、最小权限、EDR端点检测"
+  },
+  "T1569": {
+    "name": "System Services",
+    "tactics": ["Execution"],
+    "description": "攻击者滥用系统服务（SCM、systemctl）执行恶意载荷。特征：新服务创建、服务二进制替换、异常服务启动参数。",
+    "platforms": ["Windows", "Linux"],
+    "detection": "服务创建事件审计、服务文件完整性监控、异常服务配置检测",
+    "mitigation": "服务权限最小化、代码签名、服务二进制保护"
+  },
+  "T1204.001": {
+    "name": "Malicious Link",
+    "tactics": ["Execution"],
+    "description": "攻击者通过电子邮件或社交媒体发送恶意链接诱导用户下载恶意软件。特征：短链接重定向、伪装成知名网站的URL、钓鱼页面特征。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "URL信誉分析、链接重定向跟踪、点击前的链接沙箱检测",
+    "mitigation": "邮件安全网关、URL过滤、安全浏览器、用户培训"
+  },
+  "T1204.002": {
+    "name": "Malicious File",
+    "tactics": ["Execution"],
+    "description": "攻击者通过电子邮件附件投递恶意文档（Office文件、PDF等）。特征：宏代码、嵌入式对象、利用已知漏洞的文档格式。",
+    "platforms": ["Linux", "Windows", "macOS"],
+    "detection": "附件沙箱分析、宏代码检测、文件类型伪装检测",
+    "mitigation": "附件过滤、禁用Office宏、文件类型验证、沙箱扫描"
+  },
+  "T1059.001": {
+    "name": "PowerShell",
+    "tactics": ["Execution"],
+    "description": "攻击者使用PowerShell进行无文件执行，绕过传统防病毒。特征：Base64编码命令、IEX下载调用、异常PowerShell进程链、使用CLIModule。",
+    "platforms": ["Windows"],
+    "detection": "PowerShell脚本块日志、AMSII绕过检测、无文件攻击特征分析",
+    "mitigation": "PowerShell约束语言模式、AMSI、Windows Defender ATP、日志审计"
   }
 }

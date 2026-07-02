@@ -65,9 +65,19 @@ except Exception as e:
     except Exception as e2:
         print(f"[!] Fallback also failed: {e2}")
 
-# RAG Engine
+# RAG Engine — 优先从 detector 类质心构建，回退到 JSON 文件
 rag = RAGEngine(knowledge_dir=KNOWLEDGE_DIR)
-rag.load_knowledge_base()
+try:
+    rag.build_from_detector(
+        detector_path=os.path.join(_model_dir, 'detector.pkl'),
+        label_names=engine.label_names,
+    )
+    rag.load_knowledge_base()  # 加载 MITRE ATT&CK 知识库
+    print(f"[✓] RAG built from model centroids ({len(rag.attack_patterns)} patterns, "
+          f"{len(rag.mitre_knowledge)} MITRE techniques)")
+except Exception as e:
+    print(f"[!] Falling back to JSON knowledge base: {e}")
+    rag.load_knowledge_base()
 
 # XAI Engine
 xai = XAIEngine()

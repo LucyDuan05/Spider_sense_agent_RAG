@@ -29,22 +29,32 @@ class RAGEngine:
         self._loaded = False
 
     def load_knowledge_base(self):
-        """Load all knowledge bases from disk."""
-        # Load attack patterns
-        patterns_path = os.path.join(self.knowledge_dir, 'attack_patterns.json')
-        if os.path.exists(patterns_path):
-            with open(patterns_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                for item in data:
-                    pid = item['id']
-                    self.attack_patterns[pid] = np.array(item['embedding'], dtype=np.float32)
-                    self.attack_metadata[pid] = {
-                        'name': item.get('name', ''),
-                        'mitre_id': item.get('mitre_id', ''),
-                        'description': item.get('description', ''),
-                        'severity': item.get('severity', 'medium'),
-                        'category': item.get('category', 'unknown'),
-                    }
+        """Load all knowledge bases from disk.
+        
+        如果已经通过 build_from_detector 加载了类质心，跳过 attack_patterns.json
+        以避免硬编码的 128 维向量覆盖真实的 102 维质心。
+        """
+        has_centroids = any(
+            meta.get('source') == 'model_centroid'
+            for meta in self.attack_metadata.values()
+        )
+
+        if not has_centroids:
+            # Load attack patterns (only if no centroids loaded yet)
+            patterns_path = os.path.join(self.knowledge_dir, 'attack_patterns.json')
+            if os.path.exists(patterns_path):
+                with open(patterns_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for item in data:
+                        pid = item['id']
+                        self.attack_patterns[pid] = np.array(item['embedding'], dtype=np.float32)
+                        self.attack_metadata[pid] = {
+                            'name': item.get('name', ''),
+                            'mitre_id': item.get('mitre_id', ''),
+                            'description': item.get('description', ''),
+                            'severity': item.get('severity', 'medium'),
+                            'category': item.get('category', 'unknown'),
+                        }
 
         # Load MITRE ATT&CK knowledge
         mitre_path = os.path.join(self.knowledge_dir, 'mitre_attack.json')
@@ -146,6 +156,59 @@ class RAGEngine:
                       'description': 'Adversaries rely on user interaction for execution.',
                       'platforms': ['Linux', 'Windows', 'macOS']},
         }
+
+    def build_from_detector(self, detector_path: str = 'models/weibull_om/detector.pkl',
+                            label_names: List[str] = None,
+                            mitre_mapping: Dict[str, str] = None):
+        """用 WeibullOpenMax detector 的类质心(MAV)构建 RAG 知识库。
+
+        每个已知类有一个 centroid = 该类所有训练样本特征的平均值，
+        维度与模型特征完全一致。比 _init_default_knowledge() 的硬编码 128 维更准确。
+        """
+        import pickle
+        with open(detector_path, 'rb') as f:
+            om = pickle.load(f)
+
+        if label_names is None:
+            label_names = ['BENIGN', 'DDoS', 'DoS Hulk', 'PortScan',
+                           'FTP-Patator', 'SSH-Patator']
+
+        mitre_map = mitre_mapping or {
+            'BENIGN': 'N/A', 'DDoS': 'T1498', 'DoS Hulk': 'T1499',
+            'PortScan': 'T1046', 'FTP-Patator': 'T1110', 'SSH-Patator': 'T1110',
+        }
+        sev = {'BENIGN':'low','DDoS':'critical','DoS Hulk':'high',
+               'PortScan':'medium','FTP-Patator':'high','SSH-Patator':'high'}
+        cat = {'BENIGN':'normal','DDoS':'ddos','DoS Hulk':'ddos',
+               'PortScan':'reconnaissance','FTP-Patator':'credential_access',
+               'SSH-Patator':'credential_access'}
+        desc = {
+            'BENIGN': 'Normal benign traffic. No malicious activity detected.',
+            'DDoS': 'DDoS attack. High-volume traffic flood targeting service availability. Rapid packet rate, uniform sizes, distributed sources.',
+            'DoS Hulk': 'DoS Hulk attack. Massive HTTP GET requests with varying headers to consume server resources.',
+            'PortScan': 'Network port scanning. Systematic probing to discover open services. Sequential port access, high connection rate.',
+            'FTP-Patator': 'FTP brute force. Repeated login attempts against FTP service, high frequency of authentication failures.',
+            'SSH-Patator': 'SSH brute force. Repeated login attempts against SSH service from multiple sources.',
+        }
+
+        for cls_id, centroid in om.class_centroids.items():
+            if cls_id >= len(label_names):
+                continue
+            label = label_names[cls_id]
+            pid = f'centroid_{cls_id}'
+            self.attack_patterns[pid] = np.asarray(centroid, dtype=np.float32).flatten()
+            self.attack_metadata[pid] = {
+                'name': label,
+                'mitre_id': mitre_map.get(label, 'N/A'),
+                'description': desc.get(label, ''),
+                'severity': sev.get(label, 'medium'),
+                'category': cat.get(label, 'unknown'),
+                'source': 'model_centroid',
+                'feature_dim': len(self.attack_patterns[pid]),
+            }
+        print(f"[RAG] Built {len(self.attack_patterns)} class centroids (dim={list(self.attack_patterns.values())[0].shape[0]})")
+        self._loaded = True
+        return self
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two vectors."""
