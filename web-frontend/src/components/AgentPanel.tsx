@@ -9,6 +9,7 @@ interface AgentOpinion {
   evidence: string[];
   counter_evidence: string[];
   analysis: string;
+  llm_model?: string;
 }
 
 interface DebateResult {
@@ -148,7 +149,14 @@ const AgentPanel: React.FC = () => {
             </div>
             <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 8 }}>{debateResult.action}</div>
             <div style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.6 }}>{debateResult.recommendation}</div>
-            <div style={{ fontSize: 11, color: '#4b5563', marginTop: 8 }}>Mode: {debateResult.debate_mode}</div>
+            <div style={{ fontSize: 11, color: '#4b5563', marginTop: 8 }}>
+              Mode: {debateResult.debate_mode}
+              {debateResult?.detector?.llm_model && (
+                <span style={{ marginLeft: 8, color: '#00d4ff' }}>
+                  · LLM: {debateResult.detector.llm_model}
+                </span>
+              )}
+            </div>
           </div>
           <div className="debate-grid">
             {renderAgent(debateResult.detector)}

@@ -27,6 +27,7 @@ function genFeatures(type: string): number[] {
   if (type === 'ddos') { for (let i = 0; i < 12; i++) base[i] = 0.6 + Math.random() * 0.4; }
   else if (type === 'scan') { for (let i = 20; i < 35; i++) base[i] = 0.5 + Math.random() * 0.5; }
   else if (type === 'brute') { base[10] = 0.7 + Math.random() * 0.3; base[14] = Math.random() * 0.2; }
+  else if (type === 'unknown') { for (let i = 0; i < 20; i++) base[i] = 0.8 + Math.random() * 0.5; }
   return base;
 }
 
@@ -39,8 +40,10 @@ function App() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selected, setSelected] = useState<EventItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [source, setSource] = useState<'live' | 'scan' | 'brute' | 'mixed'>('live');
   const [running, setRunning] = useState(false);
+  const [normalRatio, setNormalRatio] = useState(60);
+  const [knownRatio, setKnownRatio] = useState(30);
+  const [unknownRatio, setUnknownRatio] = useState(10);
   const [captureRunning, setCaptureRunning] = useState(false);
   const [attackType, setAttackType] = useState('DDoS');
   const [attackCount, setAttackCount] = useState(8);
@@ -112,10 +115,24 @@ function App() {
     let proto: string;
     let src: string;
     let dst: string;
-    if (source === 'scan') features = genFeatures('scan');
-    else if (source === 'brute') features = genFeatures('brute');
-    else if (source === 'mixed') features = genFeatures(['normal','ddos','scan','brute'][Math.floor(Math.random()*4)]);
-    else { const r = Math.random(); features = r < 0.4 ? genFeatures('normal') : r < 0.7 ? genFeatures('ddos') : genFeatures('scan'); }
+    // 按比例随机选择本次模拟的类型
+    const total = normalRatio + knownRatio + unknownRatio;
+    const roll = Math.random() * (total || 100);
+    let simType: string;
+    if (roll < normalRatio) simType = 'normal';
+    else if (roll < normalRatio + knownRatio) simType = 'known';
+    else simType = 'unknown';
+    // 优先从数据集采样，失败时用随机生成
+    try {
+      const resp = await axios.post('/api/sample', { type: simType });
+      if (resp.data?.success) {
+        features = resp.data.data.features;
+      } else {
+        features = genFeatures(simType);
+      }
+    } catch {
+      features = genFeatures(simType);
+    }
     src = IP_EXT[Math.floor(Math.random() * IP_EXT.length)];
     dst = IP_INT[Math.floor(Math.random() * IP_INT.length)];
     proto = PROTOCOLS[Math.floor(Math.random() * PROTOCOLS.length)];
@@ -135,7 +152,7 @@ function App() {
         }, ...prev].slice(0, 500));
       }
     } catch {}
-  }, [source]);
+  }, [normalRatio, knownRatio, unknownRatio, running]);
 
   useEffect(() => {
     if (running) { runOne(); timerRef.current = setInterval(runOne, 2000); }
@@ -261,13 +278,39 @@ function App() {
   const handleSelect = async (ev: EventItem) => {
     setSelected(ev); setDrawerOpen(true); setDrawerLoading(true); setDrawerData(null);
     try {
-      const [ragResp, xaiResp, debateResp] = await Promise.all([
+      // 只加载 RAG + XAI（本地计算，免费）；Agent 按需触发
+      const [ragResp, xaiResp] = await Promise.all([
         axios.post('/api/rag/search', { features: ev.features, top_k: 3 }),
         axios.post('/api/xai/explain', { features: ev.features }),
-        axios.post('/api/debate', { detection: ev.rawResult?.detection || { prediction: ev.prediction, class_confidence: ev.confidence, is_unknown: ev.isUnknown, unknown_prob: ev.unknownScore }, flow_info: { src_ip: ev.srcIp, dst_ip: ev.dstIp, protocol: ev.protocol }, features: ev.features }),
       ]);
-      setDrawerData({ rag: ragResp.data?.data || null, xai: xaiResp.data?.data || null, debate: debateResp.data?.data?.debate || null });
+      setDrawerData({ rag: ragResp.data?.data || null, xai: xaiResp.data?.data || null, debate: null });
     } catch {} finally { setDrawerLoading(false); }
+  };
+
+  const runAgentAnalysis = async (ev: EventItem) => {
+    setDrawerLoading(true);
+    try {
+      const resp = await axios.post('/api/analyze', {
+        features: ev.features,
+        flow_info: { src_ip: ev.srcIp, dst_ip: ev.dstIp, protocol: ev.protocol },
+        detection: ev.rawResult?.detection || {
+          prediction: ev.prediction,
+          class_confidence: ev.confidence,
+          is_unknown: ev.isUnknown,
+          unknown_prob: ev.unknownScore,
+        },
+      });
+      if (resp.data?.success) {
+        setDrawerData((prev: any) => ({
+          ...prev,
+          agent: resp.data.data.agent,
+          rag: resp.data.data.rag || prev?.rag,
+          xai: resp.data.data.xai || prev?.xai,
+        }));
+      }
+    } catch (err: any) {
+      console.error('Agent analysis failed', err);
+    } finally { setDrawerLoading(false); }
   };
 
   const stats = {
@@ -297,9 +340,9 @@ function App() {
           <div className="topbar-stat"><div className="val" style={{ color: stats.attack > 0 ? 'var(--yellow)' : 'var(--text)' }}>{stats.attack}</div><div className="lbl">已知攻击</div></div>
           <div className="topbar-stat"><div className="val" style={{ color: stats.benign > 0 ? 'var(--green)' : 'var(--text)' }}>{stats.benign}</div><div className="lbl">正常流量</div></div>
           {llmEnabled && (
-            <div className="topbar-stat">
+            <div className="topbar-stat" title="Agent 正在使用 LLM 模式">
               <div className="val" style={{ fontSize: 13, color: '#00d4ff' }}>🤖 LLM</div>
-              <div className="lbl">{llmModel}</div>
+              <div className="lbl">{llmModel} · 已连接</div>
             </div>
           )}
         </div>
@@ -308,18 +351,27 @@ function App() {
       <div className="main-layout">
         {/* Sidebar */}
         <div className="input-bar">
-          <div className="section-title">数据源</div>
-          <button className={source === 'live' ? 'active' : ''} onClick={() => setSource('live')}>混合流量模拟</button>
-          <button className={source === 'scan' ? 'active' : ''} onClick={() => setSource('scan')}>端口扫描模式</button>
-          <button className={source === 'brute' ? 'active' : ''} onClick={() => setSource('brute')}>暴力破解模式</button>
-          <button className={source === 'mixed' ? 'active' : ''} onClick={() => setSource('mixed')}>全部攻击模式</button>
+          <div className="section-title">模拟数据 (拖动比例)</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 4 }}>
+            <div style={{ fontSize: 10, display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--green)' }}>● 正常 {normalRatio}%</span>
+              <span style={{ color: 'var(--yellow)' }}>● 已知攻击 {knownRatio}%</span>
+              <span style={{ color: 'var(--red)' }}>● 未知 {unknownRatio}%</span>
+            </div>
+            <input type="range" min={0} max={100} value={normalRatio} onChange={e => setNormalRatio(Number(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--green)' }} />
+            <input type="range" min={0} max={100} value={knownRatio} onChange={e => setKnownRatio(Number(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--yellow)' }} />
+            <input type="range" min={0} max={100} value={unknownRatio} onChange={e => setUnknownRatio(Number(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--red)' }} />
+          </div>
 
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 4 }}>
             <button className={running ? '' : 'active'} onClick={() => setRunning(!running)} style={{ textAlign: 'center' }}>
               {running ? '⏹ 停止模拟' : '▶ 开始模拟数据'}
             </button>
           </div>
-          {running && <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 4 }}>● 检测中</div>}
+          {running && <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 4 }}>● 模拟中 (数据集采样)</div>}
 
           <div className="section-title" style={{ marginTop: 20 }}>真实注入</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -453,9 +505,11 @@ function App() {
               <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.8, maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
                 <p>本系统将 CVPR 2019 CROSR 论文方案重构为完整的网络入侵检测控制台。核心改进：</p>
                 <p style={{ marginTop: 8 }}>🔹 <b>纯 Python OpenMax</b> — 用 NumPy/SciPy 重写 Weibull 拟合，彻底移除 libMR/Python 2.7 依赖，AUROC 0.915 接近原版 0.965</p>
-                <p>🔹 <b>多智能体辩论</b> — 检测员/分析师/裁决官三个 Agent 独立研判、投票裁决每条告警</p>
-                <p>🔹 <b>RAG 知识增强</b> — 68 条攻击模式向量 + 10 项 MITRE ATT&CK 技术，检索相似案例辅助判断</p>
+                <p>🔹 <b>OpenMax 开放集识别</b> — 计算样本到 6 个已知类质心的距离，用 Weibull 分布判定未知攻击</p>
+                <p>🔹 <b>RAG 知识增强</b> — 用特征向量检索最相似的攻击模式 + MITRE ATT&CK 技术上下文</p>
+                <p>🔹 <b>多智能体辩论</b> — 🕵️检测员找证据 / 🔬分析师找反证 / ⚖️裁决官综合判决</p>
                 <p>🔹 <b>XAI 可解释</b> — 特征扰动归因分析，揭示哪些流量特征驱动了检测决策</p>
+                <p style={{ marginTop: 8, fontSize: 11, color: 'var(--muted)' }}>流程: 原始流量 → DHRNet 特征提取 → OpenMax 开放集判定 → (异常) RAG 检索 → XAI 归因 → Agent 辩论 → 最终告警</p>
                 <p style={{ marginTop: 8 }}>点击左侧「开始模拟数据」或选择数据源，即可体验检测流程。回放和抓包数据会标注来源。</p>
               </div>
             </div>
@@ -507,7 +561,7 @@ function App() {
               <button className="drawer-close" onClick={() => { setDrawerOpen(false); setSelected(null); }}>✕</button>
             </div>
             <div className="drawer-body">
-              <DetailDrawer event={selected} data={drawerData} loading={drawerLoading} />
+              <DetailDrawer event={selected} data={drawerData} loading={drawerLoading} onAnalyze={() => selected && runAgentAnalysis(selected)} />
             </div>
           </>
         )}

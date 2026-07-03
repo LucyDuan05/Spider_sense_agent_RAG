@@ -13,7 +13,8 @@
       "Bash(conda run *)",
       "Read(//c/Users/pc/**)",
       "Bash(python -c \"import torch; print\\('torch:', torch.__version__\\); import numpy; print\\('numpy:', numpy.__version__\\); import flask; print\\('flask:', flask.__version__\\); from sklearn.ensemble import IsolationForest; print\\('sklearn: OK'\\)\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "WebSearch"
     ]
   }
 }

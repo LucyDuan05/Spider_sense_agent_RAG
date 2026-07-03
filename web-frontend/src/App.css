@@ -59,6 +59,7 @@ body {
   width: 230px; flex-shrink: 0; background: var(--surface);
   border-right: 1px solid var(--border); padding: 14px;
   display: flex; flex-direction: column; gap: 8px;
+  overflow-y: auto;
 }
 .input-bar .section-title {
   font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.2px;

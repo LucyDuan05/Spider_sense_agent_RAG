@@ -336,6 +336,32 @@ def debate():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
+@app.route('/api/analyze', methods=['POST'])
+def analyze_event():
+    """
+    按需 Agent 分析 — 仅在用户点击「Agent深度分析」时触发。
+    POST JSON: { features, flow_info, detection }
+    不走自动管道，节省 token。
+    """
+    data = request.json or {}
+    features = np.array(data.get('features', []), dtype=np.float32)
+    flow_info = data.get('flow_info', {})
+    detection_result = data.get('detection')
+
+    if len(features) == 0:
+        return jsonify({'success': False, 'error': '缺少 features'}), 400
+
+    try:
+        result = orchestrator.analyze(
+            features=features,
+            flow_info=flow_info,
+            detection_result=detection_result,
+        )
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/rag/search', methods=['POST'])
 def rag_search():
     """
@@ -545,6 +571,57 @@ def _sample_capture_vectors(attack_type, count):
 def create_app():
     """Create and configure the Flask app."""
     return app
+
+
+# ── Dataset Sampling for Frontend Simulation ─────────────────────────
+
+@app.route('/api/sample', methods=['POST'])
+def get_sample():
+    """
+    Return a random feature vector from the CICIDS dataset.
+    POST JSON: {"type": "normal"|"known"|"unknown"}
+    """
+    data = request.json or {}
+    stype = data.get('type', 'normal')
+    samples = _load_capture_samples()
+
+    try:
+        if stype == 'unknown':
+            x = samples['open']['x']
+            y = samples['open']['y']
+            labels = samples['open']['labels']
+            idx = np.random.randint(0, len(x))
+            return jsonify({
+                'success': True,
+                'data': {
+                    'features': x[int(idx)].astype(np.float32).tolist(),
+                    'true_label': labels[int(y[int(idx)])],
+                    'source': 'dataset_open',
+                }
+            })
+        else:
+            x = samples['known']['x']
+            y = samples['known']['y']
+            # normal = BENIGN (class 0), known = any attack (class 1-5)
+            if stype == 'normal':
+                mask = y == 0
+            else:  # 'known'
+                mask = y >= 1
+            selected_idx = np.where(mask)[0]
+            if len(selected_idx) == 0:
+                return jsonify({'success': False, 'error': '无匹配样本'}), 400
+            idx = np.random.choice(selected_idx)
+            label = samples['known']['labels'][int(y[idx])]
+            return jsonify({
+                'success': True,
+                'data': {
+                    'features': x[int(idx)].astype(np.float32).tolist(),
+                    'true_label': label,
+                    'source': 'dataset_known',
+                }
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ── Capture API (delegates to orchestrator) ────────────────────────────

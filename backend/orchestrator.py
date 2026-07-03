@@ -98,21 +98,7 @@ class Orchestrator:
         if need_analysis:
             xai_result = self.xai.explain(features, self.engine)
 
-        # Step 4: Agent debate (for all anomalies)
-        agent_result = None
-        if need_analysis and self.agent_layer:
-            try:
-                agent_result = self.agent_layer.debate(
-                    detection_result=detection,
-                    flow_info=flow_info or {},
-                    rag_context=rag_result,
-                    xai_context=xai_result,
-                )
-                self.agent_cache.append(agent_result)
-            except Exception as e:
-                agent_result = {'error': str(e), 'verdict': 'AGENT_ERROR'}
-
-        # Step 5: Assemble result
+        # Step 4: Assemble result (NO agent — 按需触发)
         elapsed = time.time() - start_time
 
         result = {
@@ -121,7 +107,7 @@ class Orchestrator:
             'detection': detection,
             'rag': rag_result,
             'xai': xai_result,
-            'agent': agent_result,
+            'agent': None,  # 不再自动运行 Agent, 由 analyze() 按需填充
             'pipeline_time_ms': round(elapsed * 1000, 2),
         }
 
@@ -148,6 +134,53 @@ class Orchestrator:
         for features, flow_info in zip(features_list, flow_info_list):
             results.append(self.process_flow(features, flow_info))
         return results
+
+    def analyze(self, features: np.ndarray, flow_info: Optional[Dict] = None,
+                detection_result: Optional[Dict] = None) -> Dict:
+        """
+        按需运行完整 Agent 分析（RAG + XAI + Agent 辩论）。
+        仅在用户点击某条事件时调用，不自动运行。
+        """
+        if not self.agent_layer:
+            return {'error': 'Agent层未初始化', 'verdict': 'AGENT_UNAVAILABLE'}
+
+        # 如果没有传入 detection_result, 先跑检测
+        if detection_result is None:
+            detection_result = self.engine.predict(features, return_details=True)
+
+        # RAG (如果还没跑过)
+        rag_result = None
+        cached_emb = detection_result.get('embedding')
+        if cached_emb:
+            rag_result = self.rag.search(
+                embedding=np.array(cached_emb, dtype=np.float32),
+                top_k=3
+            )
+
+        # XAI (如果还没跑过)
+        xai_result = None
+        if detection_result.get('anomaly_type', 'unknown') in ('known_attack', 'unknown'):
+            xai_result = self.xai.explain(features, self.engine)
+
+        # Agent 辩论 (这是唯一消耗 token 的步骤)
+        agent_result = None
+        try:
+            agent_result = self.agent_layer.debate(
+                detection_result=detection_result,
+                flow_info=flow_info or {},
+                rag_context=rag_result,
+                xai_context=xai_result,
+                rounds=getattr(self.agent_layer, 'debate_rounds', 1),
+            )
+            self.agent_cache.append(agent_result)
+        except Exception as e:
+            agent_result = {'error': str(e), 'verdict': 'AGENT_ERROR'}
+
+        return {
+            'rag': rag_result,
+            'xai': xai_result,
+            'agent': agent_result,
+        }
 
     def get_status(self) -> Dict:
         """Get current orchestrator status."""

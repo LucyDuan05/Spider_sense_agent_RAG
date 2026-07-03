@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 
-interface Props { event: any; data: any; loading: boolean; }
+interface Props { event: any; data: any; loading: boolean; onAnalyze?: () => void; }
 
 const VERDICT_CN: Record<string, string> = {
   CONFIRMED_THREAT: '确认威胁', LIKELY_THREAT: '疑似威胁',
   UNCERTAIN: '不确定', LIKELY_BENIGN: '疑似误报',
 };
 
-const DetailDrawer: React.FC<Props> = ({ event, data, loading }) => {
+const DetailDrawer: React.FC<Props> = ({ event, data, loading, onAnalyze }) => {
   const [tab, setTab] = useState<'agent' | 'rag' | 'xai'>('agent');
 
   if (loading) return <div style={{ color: 'var(--muted)', padding: 24, textAlign: 'center', fontSize: 13 }}>正在加载分析数据...</div>;
@@ -23,52 +23,79 @@ const DetailDrawer: React.FC<Props> = ({ event, data, loading }) => {
         <button className={`drawer-tab ${tab === 'xai' ? 'active' : ''}`} onClick={() => setTab('xai')}>📊 决策归因</button>
       </div>
 
-      {/* Agent Debate */}
-      {tab === 'agent' && debate && (
+      {/* Agent Debate — 按需触发 */}
+      {tab === 'agent' && (
         <div>
-          <div className="agent-grid">
-            {[
-              { key: 'detector', name: '检测员 Agent', icon: '🕵️', desc: '从攻击特征和证据角度分析', data: debate.detector },
-              { key: 'analyst', name: '分析师 Agent', icon: '🔬', desc: '从误报角度审视，寻找良性解释', data: debate.analyst },
-              { key: 'arbiter', name: '裁决官 Agent', icon: '⚖️', desc: '综合双方意见，做出最终判定', data: debate.arbiter },
-            ].map(a => (
-              <div key={a.key} className="agent-card">
-                <div className="agent-header">
-                  <div>
-                    <div className="agent-name">{a.icon} {a.name}</div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{a.desc}</div>
+          {!debate ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
+                Agent 辩论需要调用 LLM API，消耗 Token。
+                <br />点击下方按钮按需分析此流量。
+              </div>
+              <button
+                onClick={onAnalyze}
+                disabled={loading}
+                style={{
+                  padding: '10px 24px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface2)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                {loading ? '⏳ 分析中...' : '🤖 运行 Agent 深度分析'}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="agent-grid">
+                {[
+                  { key: 'detector', name: '检测员 Agent', icon: '🕵️', desc: '从攻击特征和证据角度分析', data: debate.detector },
+                  { key: 'analyst', name: '分析师 Agent', icon: '🔬', desc: '从误报角度审视，寻找良性解释', data: debate.analyst },
+                  { key: 'arbiter', name: '裁决官 Agent', icon: '⚖️', desc: '综合双方意见，做出最终判定', data: debate.arbiter },
+                ].map(a => (
+                  <div key={a.key} className="agent-card">
+                    <div className="agent-header">
+                      <div>
+                        <div className="agent-name">{a.icon} {a.name}</div>
+                        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{a.desc}</div>
+                      </div>
+                      <span className={`tag ${a.data?.verdict?.includes('THREAT') ? 'tag-red' : a.data?.verdict?.includes('BENIGN') ? 'tag-green' : 'tag-yellow'}`}>
+                        {VERDICT_CN[a.data?.verdict] || a.data?.verdict || 'N/A'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                      置信度: {(a.data?.confidence * 100).toFixed(0)}% &middot; {a.data?.analysis || ''}
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 11 }}>
+                      {(a.data?.evidence || []).map((e: string, i: number) => (
+                        <div key={i} style={{ color: 'var(--green)', marginBottom: 2 }}>✓ {e}</div>
+                      ))}
+                      {(a.data?.counter_evidence || []).map((e: string, i: number) => (
+                        <div key={i} style={{ color: 'var(--red)', marginBottom: 2 }}>✗ {e}</div>
+                      ))}
+                    </div>
                   </div>
-                  <span className={`tag ${a.data?.verdict?.includes('THREAT') ? 'tag-red' : a.data?.verdict?.includes('BENIGN') ? 'tag-green' : 'tag-yellow'}`}>
-                    {VERDICT_CN[a.data?.verdict] || a.data?.verdict || 'N/A'}
+                ))}
+              </div>
+
+              <div className="final-verdict">
+                <h4>
+                  {debate.verdict === 'MALICIOUS' ? '🚨 恶意流量' : debate.verdict === 'SUSPICIOUS' ? '⚠️ 可疑流量' : '✅ 良性 / 误报'}
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>
+                    {debate.vote_count}（三智能体投票结果）
                   </span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-                  置信度: {(a.data?.confidence * 100).toFixed(0)}% &middot; {a.data?.analysis || ''}
-                </div>
-                <div style={{ marginTop: 8, fontSize: 11 }}>
-                  {(a.data?.evidence || []).map((e: string, i: number) => (
-                    <div key={i} style={{ color: 'var(--green)', marginBottom: 2 }}>✓ {e}</div>
-                  ))}
-                  {(a.data?.counter_evidence || []).map((e: string, i: number) => (
-                    <div key={i} style={{ color: 'var(--red)', marginBottom: 2 }}>✗ {e}</div>
-                  ))}
+                </h4>
+                <p>{debate.recommendation || debate.action || '无处置建议'}</p>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
+                  研判模式: {debate.debate_mode === 'llm' ? 'LLM 大模型' : '规则引擎（离线）'}
                 </div>
               </div>
-            ))}
-          </div>
-
-          <div className="final-verdict">
-            <h4>
-              {debate.verdict === 'MALICIOUS' ? '🚨 恶意流量' : debate.verdict === 'SUSPICIOUS' ? '⚠️ 可疑流量' : '✅ 良性 / 误报'}
-              <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>
-                {debate.vote_count}（三智能体投票结果）
-              </span>
-            </h4>
-            <p>{debate.recommendation || debate.action || '无处置建议'}</p>
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
-              研判模式: {debate.debate_mode === 'llm' ? 'LLM 大模型' : '规则引擎（离线）'}
-            </div>
-          </div>
+            </>
+          )}
         </div>
       )}
 
