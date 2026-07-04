@@ -14,7 +14,11 @@
       "Read(//c/Users/pc/**)",
       "Bash(python -c \"import torch; print\\('torch:', torch.__version__\\); import numpy; print\\('numpy:', numpy.__version__\\); import flask; print\\('flask:', flask.__version__\\); from sklearn.ensemble import IsolationForest; print\\('sklearn: OK'\\)\")",
       "Bash(python -c ' *)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(D:/Spider_sense_agent_RAG/.venv/Scripts/python.exe *)",
+      "Bash(npx react-scripts *)",
+      "Bash(curl -sL -o \"D:/Spider_sense_agent_RAG/knowledge/enterprise-attack.json\" \"https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json\")",
+      "Bash(\".venv/Scripts/python.exe\" main.py)"
     ]
   }
 }

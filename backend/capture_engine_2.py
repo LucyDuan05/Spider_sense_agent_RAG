@@ -1,13 +1,16 @@
 """
 Spider-Sense v2 - Real Packet Capture Engine v2
-Per-packet feature extraction matching original inference_engine.py pattern.
-Uses training scaler for proper (x - mean) / scale normalization.
+Uses FlowExtractor for proper flow-level (78-dim CICIDS) feature extraction.
+Packets are aggregated into bidirectional flows; features are extracted only
+when a flow completes (FIN/RST) or times out.
 """
 import os, sys, time, json, threading
 import numpy as np
 from collections import deque
 from datetime import datetime
 from typing import Optional, Callable
+
+from .flow_extractor_2 import FlowExtractor
 
 try:
     from scapy.all import sniff, IP, TCP, UDP, Raw
@@ -163,15 +166,20 @@ def extract_flow_info(pkt) -> dict:
 
 
 class CaptureEngine:
-    """Per-packet capture engine with scaler-normalized features."""
+    """Packet capture engine using FlowExtractor for proper flow-level features."""
+
+    FLUSH_INTERVAL = 5.0  # seconds between stale-flow flushes
 
     def __init__(self, on_packet: Optional[Callable] = None):
         self.on_packet = on_packet
+        self.flow_extractor = FlowExtractor()
         self._thread: Optional[threading.Thread] = None
+        self._flush_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._running = False
         self.packet_queue = deque(maxlen=500)
         self.captured_count = 0
+        self.flow_count = 0
         self.interface = None
         self.error: Optional[str] = None
 
@@ -216,6 +224,10 @@ class CaptureEngine:
         self._stop_event.clear()
         self._running = True
         self.error = None
+        self.captured_count = 0
+        self.flow_count = 0
+
+        # Sniff thread
         def _sniff():
             try:
                 sniff(iface=interface, prn=self._handle_packet, store=False,
@@ -225,6 +237,10 @@ class CaptureEngine:
                 self._running = False
         self._thread = threading.Thread(target=_sniff, daemon=True)
         self._thread.start()
+
+        # Flush thread: periodically complete stale flows
+        self._flush_thread = threading.Thread(target=self._flush_timed_out_flows, daemon=True)
+        self._flush_thread.start()
         return True
 
     def stop(self):
@@ -233,15 +249,37 @@ class CaptureEngine:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2)
         self._thread = None
+        if self._flush_thread and self._flush_thread.is_alive():
+            self._flush_thread.join(timeout=2)
+        self._flush_thread = None
+        # Flush any remaining flows
+        try:
+            remaining = self.flow_extractor.flush_all()
+            for features, flow_info in remaining:
+                self.flow_count += 1
+                if self.on_packet:
+                    self.on_packet(features, flow_info)
+        except Exception:
+            pass
 
     def _handle_packet(self, pkt):
+        """Process a single packet. Only fires callback when a flow completes."""
         try:
-            if IP not in pkt: return
+            if IP not in pkt:
+                return
             self.captured_count += 1
-            features = build_feature_vector(pkt)
-            flow_info = extract_flow_info(pkt)
+
+            # FlowExtractor aggregates packets into bidirectional flows.
+            # Returns (features, flow_info) only when a flow is complete (FIN/RST/timeout).
+            result = self.flow_extractor.add_packet(pkt)
+            if result is None:
+                return  # Flow still in progress, nothing to report yet
+
+            features, flow_info = result  # Proper 78-dim CICIDS flow features
+            self.flow_count += 1
+
             self.packet_queue.append({
-                'features': features.tolist(),
+                'features': features.tolist() if hasattr(features, 'tolist') else features,
                 'flow_info': flow_info,
                 'timestamp': datetime.now().isoformat(),
             })
@@ -249,6 +287,26 @@ class CaptureEngine:
                 self.on_packet(features, flow_info)
         except Exception:
             pass
+
+    def _flush_timed_out_flows(self):
+        """Background thread: periodically flush stale flows that haven't completed."""
+        while not self._stop_event.is_set():
+            self._stop_event.wait(self.FLUSH_INTERVAL)
+            if self._stop_event.is_set():
+                break
+            try:
+                completed = self.flow_extractor.get_completed()
+                for features, flow_info in completed:
+                    self.flow_count += 1
+                    self.packet_queue.append({
+                        'features': features.tolist() if hasattr(features, 'tolist') else features,
+                        'flow_info': flow_info,
+                        'timestamp': datetime.now().isoformat(),
+                    })
+                    if self.on_packet:
+                        self.on_packet(features, flow_info)
+            except Exception:
+                pass
 
     def get_pending_packets(self, max_count: int = 50) -> list:
         pkts = []
@@ -260,6 +318,8 @@ class CaptureEngine:
         return {
             'available': self.available, 'running': self._running,
             'captured_count': self.captured_count,
+            'flow_count': self.flow_count,
+            'active_flows': self.flow_extractor.active_flow_count,
             'queue_size': len(self.packet_queue),
             'interface': self.interface, 'error': self.error,
             'scapy_installed': HAS_SCAPY,

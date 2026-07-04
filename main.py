@@ -47,20 +47,19 @@ def main():
     if args.debug:
         os.environ['DEBUG'] = 'true'
 
-    # Print banner
-    print(r"""
+    # Print banner (use ASCII-safe characters for Windows compatibility)
+    print("""
     ╔══════════════════════════════════════════════════════════════╗
     ║                                                              ║
-    ║   🕸️  Spider-Sense v2  —  蜘蛛感应                            ║
+    ║   Spider-Sense v2  --  Open-Set Network IDS                  ║
     ║                                                              ║
-    ║   Multi-Agent Collaborative Open-Set Network IDS              ║
-    ║   多智能体协同 · 开放集识别 · RAG知识增强 · XAI可解释          ║
+    ║   DHRNet-1D + Weibull OpenMax + Semantic RAG + XAI           ║
     ║                                                              ║
     ║   Version: 2.0.0                                             ║
     ║   Model: DHRNet-1D + Weibull OpenMax (pure Python)           ║
-    ║   Agent: Multi-Agent Debate (3-Agent Voting)                 ║
-    ║   Knowledge: MITRE ATT&CK + Attack Pattern RAG               ║
-    ║   XAI: Feature Attribution + NL Explanation                  ║
+    ║   Agent: Senior SecOps Analyst (Single-Agent)                ║
+    ║   Knowledge: MITRE ATT&CK Semantic RAG                       ║
+    ║   XAI: Feature Perturbation Attribution                       ║
     ║                                                              ║
     ╚══════════════════════════════════════════════════════════════╝
     """)

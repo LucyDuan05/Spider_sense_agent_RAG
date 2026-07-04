@@ -83,11 +83,20 @@ class XAIEngine:
     def _compute_feature_importance(self, features: np.ndarray, engine) -> List[Dict]:
         """
         Compute feature importance via perturbation-based approach.
-        Simpler and more robust than gradient methods for this use case.
+        For UNKNOWN predictions, measure impact on unknown_score.
+        For known classes, measure impact on class_confidence.
         """
         features = features.copy()
         baseline_result = engine.predict(features, return_details=True)
-        baseline_conf = baseline_result['class_confidence']
+
+        # 根据 anomaly_type 选择合适的测量目标
+        if baseline_result.get('is_unknown', False):
+            # UNKNOWN: 测量每个特征对 unknown_score 的影响
+            baseline_target = baseline_result.get('unknown_score', 0)
+        else:
+            # 已知类: 测量对 anomaly_score 的影响（融合了置信度+重建误差）
+            baseline_target = baseline_result.get('anomaly_score',
+                                                   1.0 - baseline_result['class_confidence'])
 
         importance_scores = []
         for i in range(min(len(features), len(self.feature_names))):
@@ -96,10 +105,16 @@ class XAIEngine:
             perturbed[i] = 0.0
 
             perturbed_result = engine.predict(perturbed, return_details=True)
-            perturbed_conf = perturbed_result['class_confidence']
 
-            # Importance = drop in confidence
-            importance = abs(baseline_conf - perturbed_conf)
+            # 使用与 baseline 一致的目标
+            if baseline_result.get('is_unknown', False):
+                perturbed_target = perturbed_result.get('unknown_score', 0)
+            else:
+                perturbed_target = perturbed_result.get('anomaly_score',
+                                                         1.0 - perturbed_result['class_confidence'])
+
+            # Importance = 目标值的变化（扰动后 unknown_score/anomaly_score 降低 → 该特征支持了原始判定）
+            importance = abs(baseline_target - perturbed_target)
 
             name = self.feature_names[i] if i < len(self.feature_names) else f'feature_{i}'
             importance_scores.append({

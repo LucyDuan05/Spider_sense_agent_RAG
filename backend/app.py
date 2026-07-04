@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.crosr_engine import CROSREngine
 from backend.orchestrator import Orchestrator
 from backend.rag_engine import RAGEngine
+from backend.semantic_rag import SemanticRAG
+from backend.flow_to_text import FlowToText
 from backend.xai_engine import XAIEngine
 from backend.capture_engine_2 import CaptureEngine, HAS_SCAPY
 
@@ -52,7 +54,7 @@ try:
         model_path=os.path.join(_model_dir, 'model.pth'),
         detector_path=os.path.join(_model_dir, 'detector.pkl'),
     )
-    print("[✓] CROSR Detection Engine loaded")
+    print("[[OK]] CROSR Detection Engine loaded")
 except Exception as e:
     print(f"[!] CROSR Engine load failed: {e}")
     # Fallback: try old path
@@ -61,29 +63,39 @@ except Exception as e:
             model_path='models/weibull_om/model.pth',
             detector_path='models/weibull_om/detector.pkl',
         )
-        print("[✓] CROSR Engine loaded (fallback path)")
+        print("[[OK]] CROSR Engine loaded (fallback path)")
     except Exception as e2:
         print(f"[!] Fallback also failed: {e2}")
 
-# RAG Engine — 优先从 detector 类质心构建，回退到 JSON 文件
+# Knowledge Manager — 加载 MITRE ATT&CK 知识库 + 检测历史追踪
 rag = RAGEngine(knowledge_dir=KNOWLEDGE_DIR)
+rag.load_knowledge_base()
+print(f"[[OK]] Knowledge Manager loaded: {len(rag.mitre_knowledge)} MITRE techniques")
+
+# Flow-to-Text Converter — 78维特征 → 自然语言行为描述
+scaler_path = os.path.join(BASE_DIR, 'processed_cicids', 'scaler.npz')
+flow_to_text = FlowToText(scaler_path=scaler_path)
+print(f"[[OK]] Flow-to-Text converter ready ({len(flow_to_text.feature_names)} features)")
+
+# Semantic RAG — 语义检索 MITRE 知识库
+semantic_rag = SemanticRAG(knowledge_dir=KNOWLEDGE_DIR)
 try:
-    rag.build_from_detector(
-        detector_path=os.path.join(_model_dir, 'detector.pkl'),
-        label_names=engine.label_names,
-    )
-    rag.load_knowledge_base()  # 加载 MITRE ATT&CK 知识库
-    print(f"[✓] RAG built from model centroids ({len(rag.attack_patterns)} patterns, "
-          f"{len(rag.mitre_knowledge)} MITRE techniques)")
-except Exception as e:
-    print(f"[!] Falling back to JSON knowledge base: {e}")
-    rag.load_knowledge_base()
+    semantic_rag.initialize()
+    print(f"[[OK]] Semantic RAG ready: {semantic_rag.get_stats()['num_entries']} entries, "
+          f"{semantic_rag.get_stats()['embedding_dim']}-dim embeddings")
+except ImportError:
+    print("[!] Semantic RAG disabled (pip install sentence-transformers)")
+    semantic_rag = None
 
 # XAI Engine
 xai = XAIEngine()
 
 # Orchestrator
-orchestrator = Orchestrator(engine=engine, rag=rag, xai=xai)
+orchestrator = Orchestrator(
+    engine=engine, rag=rag, xai=xai,
+    semantic_rag=semantic_rag,
+    flow_to_text=flow_to_text,
+)
 
 # Runtime LLM configuration
 _llm_api_key = os.environ.get('LLM_API_KEY')
@@ -112,13 +124,13 @@ def _init_agent_layer():
 
 
 _init_agent_layer()
-print(f"[✓] Agent layer initialized (mode: {'LLM' if _use_api else 'rule-based'})")
+print(f"[[OK]] Agent layer initialized (mode: {'LLM' if _use_api else 'rule-based'})")
 
 # ── Capture Engine (real packet capture) ─────────────────────────────
 capture_engine = CaptureEngine(
     on_packet=lambda features, flow_info: _on_captured_packet(features, flow_info)
 )
-print(f"[{'✓' if capture_engine.available else '!'}] Capture engine: "
+print(f"[{'[OK]' if capture_engine.available else '!'}] Capture engine: "
       f"{'scapy available' if capture_engine.available else 'scapy not installed (pip install scapy)'}")
 
 # ── Captured packet callback & buffer ────────────────────────────────
@@ -298,13 +310,14 @@ def debate():
         return jsonify({'success': False, 'error': '缺少 detection 字段'}), 400
 
     try:
-        # Run RAG search
+        # Semantic RAG search
         features = np.array(data.get('features', []), dtype=np.float32)
         rag_result = None
-        if len(features) > 0:
+        if len(features) > 0 and semantic_rag:
             try:
-                embedding = engine.extract_features(features)['embedding'][0]
-                rag_result = rag.search(embedding)
+                detection = data.get('detection', {})
+                query_text = flow_to_text.to_rag_query(features, detection)
+                rag_result = semantic_rag.search(query_text, top_k=3)
             except Exception:
                 rag_result = []
 
@@ -365,35 +378,41 @@ def analyze_event():
 @app.route('/api/rag/search', methods=['POST'])
 def rag_search():
     """
-    RAG knowledge base search.
-    POST JSON: {"embedding": [...], "top_k": 5} or {"features": [...]}
+    Semantic RAG — 流特征 → 自然语言 → MITRE 知识检索。
+    POST JSON: {"features": [...], "top_k": 5}
     """
     data = request.json or {}
-    embedding = data.get('embedding', None)
     features = data.get('features', None)
     top_k = data.get('top_k', 5)
 
     try:
-        if embedding is None and features is not None:
-            # Extract embedding from features
-            features_arr = np.array(features, dtype=np.float32)
-            model_output = engine.extract_features(features_arr)
-            embedding = model_output['embedding'][0].tolist()
+        if features is None:
+            return jsonify({'success': False, 'error': '缺少 features 字段'}), 400
 
-        if embedding is None:
-            return jsonify({'success': False, 'error': '缺少 embedding 或 features 字段'}), 400
+        features_arr = np.array(features, dtype=np.float32)
 
-        results = rag.search(np.array(embedding), top_k=top_k)
+        # Semantic RAG: features → text → embedding → MITRE search
+        if semantic_rag:
+            query_text = flow_to_text.to_rag_query(features_arr)
+            matches = semantic_rag.search(query_text, top_k=top_k)
+        else:
+            matches = []
 
-        # Also search history
+        # History search still uses feature-space cos_sim
+        model_output = engine.extract_features(features_arr)
+        embedding = model_output['embedding'][0]
         history = rag.search_history(np.array(embedding), top_k=3)
 
         return jsonify({
             'success': True,
             'data': {
-                'matches': results,
+                'query_text': query_text if semantic_rag else None,
+                'matches': matches,
                 'history_matches': history,
-                'stats': rag.get_knowledge_stats(),
+                'stats': {
+                    'knowledge': rag.get_knowledge_stats(),
+                    'semantic_rag': semantic_rag.get_stats() if semantic_rag else None,
+                },
             },
         })
     except Exception as e:

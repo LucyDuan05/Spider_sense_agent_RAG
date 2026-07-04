@@ -7,7 +7,12 @@ import os, time, numpy as np
 from collections import deque
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-from scapy.all import IP, TCP, UDP, Raw
+
+try:
+    from scapy.all import IP, TCP, UDP, Raw
+    HAS_SCAPY = True
+except ImportError:
+    HAS_SCAPY = False
 
 # ── Constants ────────────────────────────────────────────────────────
 FLOW_TIMEOUT = 120.0

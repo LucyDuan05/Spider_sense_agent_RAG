@@ -1,0 +1,64 @@
+[
+  {
+    "group": "G1",
+    "config": {
+      "name": "G1_softmax",
+      "use_openmax": false,
+      "use_rag": false
+    },
+    "metrics": {
+      "known_accuracy": 0.9967,
+      "known_f1_macro": 0.9967,
+      "known_avg_confidence": 0.9965,
+      "unknown_avg_confidence": 0.9813,
+      "unknown_high_conf_ratio": 0.9855
+    }
+  },
+  {
+    "group": "G2",
+    "config": {
+      "name": "G2_openmax",
+      "use_openmax": true,
+      "use_rag": false
+    },
+    "metrics": {
+      "auroc": 0.9035,
+      "fpr_at_95tpr": 0.2095,
+      "tpr_at_5fpr": 0.1094,
+      "unknown_recall": 0.9844,
+      "known_false_unknown_rate": 0.2619
+    }
+  },
+  {
+    "group": "G3",
+    "config": {
+      "name": "G3_rag",
+      "use_openmax": true,
+      "use_rag": true
+    },
+    "metrics": {
+      "unknown_triggered": 205,
+      "unknown_trigger_rate": 0.9903,
+      "rag_top1_family_hit_rate": 0.361,
+      "rag_top3_family_hit_rate": 0.722,
+      "rag_avg_similarity": 0.9731
+    }
+  },
+  {
+    "group": "G4",
+    "config": {
+      "name": "G4_feedback",
+      "use_openmax": true,
+      "use_rag": true,
+      "use_rag_feedback": true
+    },
+    "metrics": {
+      "batch1_family_hit_rate": 1.0,
+      "batch2_family_hit_rate": 0.0,
+      "batch3_family_hit_rate": 0.0,
+      "improvement_b1_to_b3": -1.0,
+      "rag_total_patterns_after": 8,
+      "feedback_added": 2
+    }
+  }
+]

@@ -15,23 +15,26 @@ const DetailDrawer: React.FC<Props> = ({ event, data, loading, onAnalyze }) => {
 
   const { debate, rag, xai } = data;
 
+  const sectionHeader = { fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 };
+  const sectionBody = { fontSize: 12, color: 'var(--text)', lineHeight: 1.8, whiteSpace: 'pre-wrap' as const };
+
   return (
     <div>
       <div className="drawer-tabs">
-        <button className={`drawer-tab ${tab === 'agent' ? 'active' : ''}`} onClick={() => setTab('agent')}>🧠 智能体辩论</button>
+        <button className={`drawer-tab ${tab === 'agent' ? 'active' : ''}`} onClick={() => setTab('agent')}>🛡️ 智能研判</button>
         <button className={`drawer-tab ${tab === 'rag' ? 'active' : ''}`} onClick={() => setTab('rag')}>🔍 知识库证据</button>
         <button className={`drawer-tab ${tab === 'xai' ? 'active' : ''}`} onClick={() => setTab('xai')}>📊 决策归因</button>
       </div>
 
-      {/* Agent Debate — 按需触发 */}
+      {/* Agent 研判报告 — 单安全专家智能体（按需触发） */}
       {tab === 'agent' && (
         <div>
           {!debate ? (
             <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>🛡️</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-                Agent 辩论需要调用 LLM API，消耗 Token。
-                <br />点击下方按钮按需分析此流量。
+                Senior SecOps 安全专家智能体
+                <br />融合 XAI 特征归因 + RAG 威胁情报，生成结构化研判报告。
               </div>
               <button
                 onClick={onAnalyze}
@@ -46,54 +49,72 @@ const DetailDrawer: React.FC<Props> = ({ event, data, loading, onAnalyze }) => {
                   fontSize: 13,
                 }}
               >
-                {loading ? '⏳ 分析中...' : '🤖 运行 Agent 深度分析'}
+                {loading ? '⏳ 分析中...' : '🛡️ 运行智能分析'}
               </button>
             </div>
           ) : (
             <>
-              <div className="agent-grid">
-                {[
-                  { key: 'detector', name: '检测员 Agent', icon: '🕵️', desc: '从攻击特征和证据角度分析', data: debate.detector },
-                  { key: 'analyst', name: '分析师 Agent', icon: '🔬', desc: '从误报角度审视，寻找良性解释', data: debate.analyst },
-                  { key: 'arbiter', name: '裁决官 Agent', icon: '⚖️', desc: '综合双方意见，做出最终判定', data: debate.arbiter },
-                ].map(a => (
-                  <div key={a.key} className="agent-card">
-                    <div className="agent-header">
-                      <div>
-                        <div className="agent-name">{a.icon} {a.name}</div>
-                        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{a.desc}</div>
-                      </div>
-                      <span className={`tag ${a.data?.verdict?.includes('THREAT') ? 'tag-red' : a.data?.verdict?.includes('BENIGN') ? 'tag-green' : 'tag-yellow'}`}>
-                        {VERDICT_CN[a.data?.verdict] || a.data?.verdict || 'N/A'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-                      置信度: {(a.data?.confidence * 100).toFixed(0)}% &middot; {a.data?.analysis || ''}
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 11 }}>
-                      {(a.data?.evidence || []).map((e: string, i: number) => (
-                        <div key={i} style={{ color: 'var(--green)', marginBottom: 2 }}>✓ {e}</div>
-                      ))}
-                      {(a.data?.counter_evidence || []).map((e: string, i: number) => (
-                        <div key={i} style={{ color: 'var(--red)', marginBottom: 2 }}>✗ {e}</div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="final-verdict">
+              {/* 判定结果横幅 */}
+              <div className="final-verdict" style={{ marginBottom: 16 }}>
                 <h4>
                   {debate.verdict === 'MALICIOUS' ? '🚨 恶意流量' : debate.verdict === 'SUSPICIOUS' ? '⚠️ 可疑流量' : '✅ 良性 / 误报'}
                   <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>
-                    {debate.vote_count}（三智能体投票结果）
+                    威胁评分: {(debate.threat_score * 100).toFixed(0)}%
                   </span>
                 </h4>
-                <p>{debate.recommendation || debate.action || '无处置建议'}</p>
-                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 6 }}>
-                  研判模式: {debate.debate_mode === 'llm' ? 'LLM 大模型' : '规则引擎（离线）'}
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                  分析模式: {debate.analysis_mode === 'llm' ? `LLM (${debate.llm_model || 'N/A'})` : '规则引擎（离线模板）'}
                 </div>
               </div>
+
+              {/* 1. 风险评估 */}
+              {debate.risk_assessment && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={sectionHeader}>🔍 风险评估</div>
+                  <div style={sectionBody}>{debate.risk_assessment}</div>
+                </div>
+              )}
+
+              {/* 2. 情报关联 */}
+              {debate.intelligence_correlation && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={sectionHeader}>🎯 情报关联</div>
+                  <div style={sectionBody}>{debate.intelligence_correlation}</div>
+                </div>
+              )}
+
+              {/* 3. 处置建议 */}
+              {debate.disposal_recommendation && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={sectionHeader}>🛡️ 处置建议</div>
+                  <div style={sectionBody}>{debate.disposal_recommendation}</div>
+                </div>
+              )}
+
+              {/* 兼容旧版三智能体格式 (fallback) */}
+              {debate.detector && !debate.risk_assessment && (
+                <div className="agent-grid">
+                  {[
+                    { key: 'detector', name: '检测员', icon: '🕵️', data: debate.detector },
+                    { key: 'analyst', name: '分析师', icon: '🔬', data: debate.analyst },
+                    { key: 'arbiter', name: '裁决官', icon: '⚖️', data: debate.arbiter },
+                  ].map(a => (
+                    <div key={a.key} className="agent-card">
+                      <div className="agent-header">
+                        <div>
+                          <div className="agent-name">{a.icon} {a.name}</div>
+                        </div>
+                        <span className={`tag ${a.data?.verdict?.includes('THREAT') ? 'tag-red' : a.data?.verdict?.includes('BENIGN') ? 'tag-green' : 'tag-yellow'}`}>
+                          {VERDICT_CN[a.data?.verdict] || a.data?.verdict || 'N/A'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                        {a.data?.analysis || ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -134,7 +155,9 @@ const DetailDrawer: React.FC<Props> = ({ event, data, loading, onAnalyze }) => {
           </div>
           {rag.stats && (
             <div style={{ marginTop: 16, fontSize: 10, color: 'var(--muted)' }}>
-              知识库规模: {rag.stats.num_patterns} 条攻击模式 &middot; {rag.stats.num_mitre_techniques} 项 MITRE ATT&CK 技术
+              知识库规模: {rag.stats.semantic_rag?.num_entries || rag.stats.knowledge?.num_mitre_techniques || 0} 项 MITRE ATT&CK 技术
+              {rag.stats.semantic_rag?.embedding_dim && <span> · {rag.stats.semantic_rag.embedding_dim} 维语义向量</span>}
+              {rag.stats.knowledge?.num_history_entries > 0 && <span> · {rag.stats.knowledge.num_history_entries} 条历史记录</span>}
             </div>
           )}
         </div>

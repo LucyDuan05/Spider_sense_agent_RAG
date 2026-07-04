@@ -15,7 +15,8 @@ interface EventItem {
   protocol: string;
   features: number[];
   rawResult: any;
-  sourceType: 'simulated' | 'injected' | 'captured';  // 数据来源
+  sourceType: 'simulated' | 'injected' | 'captured';
+  ragHint?: string;  // UNKNOWN 时 RAG 最匹配的攻击类别
 }
 
 const PROTOCOLS = ['TCP', 'UDP', 'HTTP', 'DNS'];
@@ -95,6 +96,7 @@ function App() {
                 features: item.features || [],
                 rawResult: item.rawResult || {},
                 sourceType: 'captured' as const,
+                ragHint: item.rawResult?.rag_hint || undefined,
               })),
               ...prev,
             ].slice(0, 500));
@@ -149,6 +151,7 @@ function App() {
           unknownScore: det.unknown_prob || 0,
           srcIp: src, dstIp: dst, protocol: proto, features, rawResult: resp.data.data,
           sourceType: 'simulated' as const,
+          ragHint: resp.data.data.rag_hint || undefined,
         }, ...prev].slice(0, 500));
       }
     } catch {}
@@ -303,7 +306,7 @@ function App() {
       if (resp.data?.success) {
         setDrawerData((prev: any) => ({
           ...prev,
-          agent: resp.data.data.agent,
+          debate: resp.data.data.agent,
           rag: resp.data.data.rag || prev?.rag,
           xai: resp.data.data.xai || prev?.xai,
         }));
@@ -332,7 +335,7 @@ function App() {
       <div className="topbar">
         <div>
           <div className="topbar-title">Spider-Sense v2</div>
-          <div className="topbar-subtitle">实时网络攻击检测 · 多智能体协作 · RAG知识增强 · XAI可解释</div>
+          <div className="topbar-subtitle">实时网络攻击检测 · 安全专家智能体 · RAG知识增强 · XAI可解释</div>
         </div>
         <div className="topbar-stats">
           <div className="topbar-stat"><div className="val">{stats.total}</div><div className="lbl">检测事件</div></div>
@@ -373,9 +376,9 @@ function App() {
           </div>
           {running && <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 4 }}>● 模拟中 (数据集采样)</div>}
 
-          <div className="section-title" style={{ marginTop: 20 }}>真实注入</div>
+          <div className="section-title" style={{ marginTop: 20 }}>真实抓包与注入</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* 网卡选择 */}
+            {/* 网卡选择 — 仅未启动时显示 */}
             {availableInterfaces.length > 0 && !captureRunning && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ fontSize: 9, color: 'var(--muted)' }}>选择网卡</div>
@@ -397,31 +400,38 @@ function App() {
               onClick={captureRunning ? stopCapture : startCapture}
               style={{ textAlign: 'center' }}
             >
-              {captureRunning ? '⏹ 停止捕获' : '▶ 启动捕获'}
+              {captureRunning ? '⏹ 停止捕获' : '▶ 启动抓包'}
             </button>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <select value={attackType} onChange={e => setAttackType(e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)' }}>
-                {attackTypes.map(type => <option key={type} value={type}>{type}</option>)}
-              </select>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={attackCount}
-                onChange={e => setAttackCount(Number(e.target.value))}
-                style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)' }}
-              />
-            </div>
-            <button className="active" onClick={injectAttack} style={{ textAlign: 'center' }}>
-              注入选中攻击样本
-            </button>
-            {captureMessage && <div style={{ fontSize: 10, color: 'var(--text)', marginTop: 4 }}>{captureMessage}</div>}
-            {captureError && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}>{captureError}</div>}
             {captureRunning && captureStats && (
               <div style={{ fontSize: 9, color: 'var(--muted)', lineHeight: 1.6, marginTop: 2 }}>
-                接口: {captureStats.interface || 'N/A'} · 包: {captureStats.captured_count || 0}
+                接口: {captureStats.interface || 'N/A'} · 包: {captureStats.captured_count || 0} · 流: {captureStats.flow_count || 0}
+                {captureStats.active_flows > 0 && <span> · 活跃流: {captureStats.active_flows}</span>}
                 {captureStats.error && <div style={{ color: 'var(--red)' }}>错误: {captureStats.error}</div>}
               </div>
+            )}
+            {/* 注入控件 — 仅在抓包运行时显示 */}
+            {captureRunning && (
+              <>
+                <div className="section-title" style={{ marginTop: 8 }}>注入攻击样本</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <select value={attackType} onChange={e => setAttackType(e.target.value)} style={{ flex: 1, padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 11 }}>
+                    {attackTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={attackCount}
+                    onChange={e => setAttackCount(Number(e.target.value))}
+                    style={{ width: 60, padding: 8, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 11 }}
+                  />
+                </div>
+                <button className="active" onClick={injectAttack} style={{ textAlign: 'center' }}>
+                  注入选中攻击样本
+                </button>
+                {captureMessage && <div style={{ fontSize: 10, color: 'var(--text)', marginTop: 4 }}>{captureMessage}</div>}
+                {captureError && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}>{captureError}</div>}
+              </>
             )}
           </div>
 
@@ -466,10 +476,10 @@ function App() {
           {/* Tech highlights */}
           <div className="section-title" style={{ marginTop: 20 }}>核心技术</div>
           <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.8 }}>
-            <div>🧠 多智能体协同研判</div>
+            <div>🛡️ 安全专家智能体研判</div>
             <div>🔍 RAG 知识增强检索</div>
             <div>📊 XAI 可解释性归因</div>
-            <div>🎯 开放集未知攻击识别</div>
+            <div>🎯 OpenMax 开放集未知攻击识别</div>
             <div>⚡ 纯 Python — 无 Python2 依赖</div>
           </div>
 
@@ -501,16 +511,16 @@ function App() {
             <div className="empty-state">
               <div className="icon" style={{ fontSize: 40 }}>🕸️</div>
               <div className="msg" style={{ fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>Spider-Sense v2 — 蜘蛛感应</div>
-              <div className="msg" style={{ marginBottom: 16 }}>多智能体协同 · 开放集识别 · RAG增强 · XAI可解释</div>
+              <div className="msg" style={{ marginBottom: 16 }}>开放集识别 · 安全专家智能体 · RAG增强 · XAI可解释</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.8, maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
                 <p>本系统将 CVPR 2019 CROSR 论文方案重构为完整的网络入侵检测控制台。核心改进：</p>
-                <p style={{ marginTop: 8 }}>🔹 <b>纯 Python OpenMax</b> — 用 NumPy/SciPy 重写 Weibull 拟合，彻底移除 libMR/Python 2.7 依赖，AUROC 0.915 接近原版 0.965</p>
+                <p style={{ marginTop: 8 }}>🔹 <b>纯 Python OpenMax</b> — 用 NumPy/SciPy 重写 Weibull 拟合，彻底移除 libMR/Python 2.7 依赖</p>
                 <p>🔹 <b>OpenMax 开放集识别</b> — 计算样本到 6 个已知类质心的距离，用 Weibull 分布判定未知攻击</p>
-                <p>🔹 <b>RAG 知识增强</b> — 用特征向量检索最相似的攻击模式 + MITRE ATT&CK 技术上下文</p>
-                <p>🔹 <b>多智能体辩论</b> — 🕵️检测员找证据 / 🔬分析师找反证 / ⚖️裁决官综合判决</p>
+                <p>🔹 <b>RAG 知识增强</b> — 特征空间最近邻检索 + MITRE ATT&CK 技术上下文</p>
+                <p>🔹 <b>安全专家智能体</b> — 融合 XAI 扰动归因 + RAG 知识检索，生成结构化研判报告</p>
                 <p>🔹 <b>XAI 可解释</b> — 特征扰动归因分析，揭示哪些流量特征驱动了检测决策</p>
-                <p style={{ marginTop: 8, fontSize: 11, color: 'var(--muted)' }}>流程: 原始流量 → DHRNet 特征提取 → OpenMax 开放集判定 → (异常) RAG 检索 → XAI 归因 → Agent 辩论 → 最终告警</p>
-                <p style={{ marginTop: 8 }}>点击左侧「开始模拟数据」或选择数据源，即可体验检测流程。回放和抓包数据会标注来源。</p>
+                <p style={{ marginTop: 8, fontSize: 11, color: 'var(--muted)' }}>流程: 原始流量 → DHRNet 特征提取 → OpenMax 开放集判定 → (异常) RAG 检索 → XAI 归因 → 智能体研判 → 结构化报告</p>
+                <p style={{ marginTop: 8 }}>点击左侧「开始模拟数据」即可体验检测流程。回放和抓包数据会标注来源。</p>
               </div>
             </div>
           ) : (
@@ -525,7 +535,9 @@ function App() {
                 </div>
                 <div className="info">
                   <div className="label">
-                    {displayLabel(ev.prediction)}
+                    {ev.prediction === 'UNKNOWN' && ev.ragHint
+                      ? ev.ragHint
+                      : displayLabel(ev.prediction)}
                     {ev.isUnknown && <span style={{ color: 'var(--yellow)', fontSize: 10, marginLeft: 6 }}>未知攻击</span>}
                   </div>
                   <div className="flow">{ev.srcIp} → {ev.dstIp} &middot; {ev.protocol}</div>

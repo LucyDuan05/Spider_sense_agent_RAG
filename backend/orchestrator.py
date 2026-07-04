@@ -1,6 +1,6 @@
 """
 Spider-Sense v2 - Orchestrator
-Coordinates detection → Agent analysis → RAG → XAI pipeline
+Coordinates detection → Flow-to-Text → Semantic RAG → Agent → XAI pipeline
 """
 import time
 import threading
@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Any
 from .detection_engine import DetectionEngine
 from .rag_engine import RAGEngine
 from .xai_engine import XAIEngine
+from .flow_to_text import FlowToText
+from .semantic_rag import SemanticRAG
 
 
 class Orchestrator:
@@ -27,10 +29,17 @@ class Orchestrator:
 
     def __init__(self, engine: DetectionEngine,
                  rag: Optional[RAGEngine] = None,
-                 xai: Optional[XAIEngine] = None):
+                 xai: Optional[XAIEngine] = None,
+                 semantic_rag: Optional[SemanticRAG] = None,
+                 flow_to_text: Optional[FlowToText] = None,
+                 scaler_path: str = None):
         self.engine = engine
-        self.rag = rag or RAGEngine()
+        self.rag = rag or RAGEngine()        # MITRE 知识 + 历史追踪
         self.xai = xai or XAIEngine()
+
+        # Semantic RAG: flow → text → embedding → MITRE search
+        self.semantic_rag = semantic_rag
+        self.flow_to_text = flow_to_text
 
         # Agent layer (lazy import to avoid circular deps)
         self.agent_layer = None
@@ -83,22 +92,34 @@ class Orchestrator:
         #
         need_analysis = detection.get('anomaly_type', 'unknown') in ('known_attack', 'unknown')
 
-        # Step 2: RAG enrichment (用 predict 已算好的缓存 embedding, 避免二次前向)
+        # Step 2: Semantic RAG — flow→text→embedding→MITRE search
         rag_result = None
-        if need_analysis:
-            cached_emb = detection.get('embedding')
-            if cached_emb:
-                rag_result = self.rag.search(
-                    embedding=np.array(cached_emb, dtype=np.float32),
-                    top_k=3
-                )
+        if need_analysis and self.semantic_rag:
+            try:
+                query_text = self.flow_to_text.to_rag_query(features, detection)
+                rag_result = self.semantic_rag.search(query_text, top_k=3)
+            except Exception:
+                rag_result = None
 
         # Step 3: XAI explanation (for all anomalies)
         xai_result = None
         if need_analysis:
             xai_result = self.xai.explain(features, self.engine)
 
-        # Step 4: Assemble result (NO agent — 按需触发)
+        # Step 4: RAG hint — UNKNOWN 时附加最可能的类别（过滤正常流量锚点）
+        rag_hint = None
+        if detection.get('is_unknown') and rag_result and len(rag_result) > 0:
+            top = rag_result[0]
+            top_id = top.get('mitre', {}).get('id', '')
+            # 跳过正常流量锚点 — 不显示攻击标签
+            if top_id and top_id != 'BENIGN':
+                rag_hint = f"{top_id} {top.get('name', '')}"
+            elif top.get('similarity', 0) < 0.4:
+                rag_hint = None  # 相似度过低, 不确定
+            else:
+                rag_hint = None  # 匹配到正常流量, 不显示标签
+
+        # Step 5: Assemble result (NO agent — 按需触发)
         elapsed = time.time() - start_time
 
         result = {
@@ -106,6 +127,7 @@ class Orchestrator:
             'flow_info': flow_info or {},
             'detection': detection,
             'rag': rag_result,
+            'rag_hint': rag_hint,
             'xai': xai_result,
             'agent': None,  # 不再自动运行 Agent, 由 analyze() 按需填充
             'pipeline_time_ms': round(elapsed * 1000, 2),
@@ -148,14 +170,14 @@ class Orchestrator:
         if detection_result is None:
             detection_result = self.engine.predict(features, return_details=True)
 
-        # RAG (如果还没跑过)
+        # Semantic RAG — flow→text→embedding→MITRE search
         rag_result = None
-        cached_emb = detection_result.get('embedding')
-        if cached_emb:
-            rag_result = self.rag.search(
-                embedding=np.array(cached_emb, dtype=np.float32),
-                top_k=3
-            )
+        if self.semantic_rag:
+            try:
+                query_text = self.flow_to_text.to_rag_query(features, detection_result)
+                rag_result = self.semantic_rag.search(query_text, top_k=3)
+            except Exception:
+                rag_result = None
 
         # XAI (如果还没跑过)
         xai_result = None

@@ -54,10 +54,10 @@ class CROSREngine:
         if os.path.exists(detector_path):
             with open(detector_path, 'rb') as f:
                 self.om_detector = pickle.load(f)
-            print(f"[✓] WeibullOpenMax loaded: {len(self.om_detector.class_centroids)} classes")
+            print(f"[[OK]] WeibullOpenMax loaded: {len(self.om_detector.class_centroids)} classes")
 
         self.loaded = True
-        print(f"[✓] CROSR Engine ready: {self.num_classes} classes, {self.label_names}")
+        print(f"[[OK]] CROSR Engine ready: {self.num_classes} classes, {self.label_names}")
         return self
 
     def extract_features(self, raw_features):
@@ -104,55 +104,72 @@ class CROSREngine:
         probs = out['probabilities'][0]  # softmax probabilities
         recon_error = float(out['recon_error'][0])
 
-        # Classification
+        # Classification (Softmax baseline — always available)
         pred_class = int(np.argmax(logit_vec))
-        class_conf = float(probs[pred_class])  # probability, not raw logit
+        softmax_conf = float(probs[pred_class])
+        softmax_prediction = str(self.label_names[pred_class]) if pred_class < len(self.label_names) else f'class_{pred_class}'
 
         # OpenMax scoring
         if self.om_detector and self.om_detector.fitted:
             om_result = self.om_detector.predict(feat_vec)
             is_unknown = om_result['is_unknown']
             unknown_score = om_result['unknown_score']
-            if is_unknown:
+
+            # ── 融合决策: Softmax 强信号可覆盖 OpenMax ─────────────
+            # OpenMax 可能过于保守, 对某些已知类也标记 unknown
+            # 两层覆盖:
+            #   A) Softmax 极高置信度 (≥0.9) 且 OpenMax 不太确定 (<0.5) → 信任 Softmax
+            #   B) BENIGN 专用: Softmax 高置信度 (≥0.85) 且 OpenMax 仅轻微怀疑 (<0.65)
+            if (is_unknown
+                and softmax_conf >= 0.9
+                and unknown_score < 0.5):
+                is_unknown = False
+                prediction = softmax_prediction
+                class_conf = round(float(softmax_conf), 4)
+            elif (is_unknown
+                  and softmax_prediction == 'BENIGN'
+                  and softmax_conf > 0.85
+                  and unknown_score < 0.65):
+                is_unknown = False
+                prediction = 'BENIGN'
+                class_conf = round(float(softmax_conf), 4)
+            elif is_unknown:
                 prediction = 'UNKNOWN'
+                class_conf = round(float(unknown_score), 4)
             else:
                 cls = om_result['predicted_class']
                 prediction = str(self.label_names[cls]) if cls < len(self.label_names) else f'class_{cls}'
+                class_conf = round(float(om_result.get('class_confidence', softmax_conf)), 4)
         else:
             is_unknown = False
             unknown_score = 0.0
-            prediction = str(self.label_names[pred_class]) if pred_class < len(self.label_names) else f'class_{pred_class}'
+            prediction = softmax_prediction
+            class_conf = round(float(softmax_conf), 4)
             om_result = {}
 
         # ── 融合异常判定: 四象限模型 ──────────────────────────────
         #
-        #   is_unknown: OpenMax 无法将样本归入任何已知 6 类
-        #   is_anomaly: 综合多信号判定"需要深入分析"
-        #
         #   三个正交异常信号:
         #   ① unknown_score    → 距已知类分布过远 (OpenMax)
-        #   ② class_confidence → 模型不确定自己的判断 (Softmax)
+        #   ② softmax_conf     → 模型不确定自己的判断 (Softmax)
         #   ③ recon_error      → 解码器无法重建输入 (CROSR)
         #
-        #   四象限:
-        #                  Normal (正常)         Anomalous (异常)
-        #   Known (已知)  ① BENIGN, 置信度≥0.7   ② 已知攻击 (DDoS 95%)
-        #                   → 跳过分析             → 全量分析 (本次修复)
-        #   Unknown (未知) ③ 新型良性(低概率)      ④ 零日攻击
-        #                   → 保守标记 unknown      → 全量分析
+        #   BENIGN 判定使用 softmax_prediction (Softmax 原始判定),
+        #   不被 OpenMax 覆写后的 prediction 影响。
+        #   阈值含义:
+        #     confident_enough=0.7 : Softmax 有 70%+ 把握是良性
+        #     recon_abnormal=0.15  : CROSR 不能重建 → 模式异常
+        #     openmax_alarmed=0.55 : OpenMax 比较确定不是已知类
         #
-        #   关键: benign 必须同时检查 prediction == 'BENIGN' 和高置信度。
-        #   DDoS 95% 满足高置信度但不满足预测类别, 不会误判为 benign。
-        #
-        confident_enough = class_conf >= 0.7
-        recon_abnormal = recon_error > 0.15     # 阈值可调, 需根据训练集统计
-        openmax_alarmed = unknown_score > 0.5
+        confident_enough = softmax_conf >= 0.7
+        recon_abnormal = recon_error > 0.15
+        openmax_alarmed = unknown_score > 0.55        # 从 0.5 调到 0.55, 减少误报
 
         is_genuinely_benign = (
-            (prediction == 'BENIGN')            # ① DHRNet 明确预测为 BENIGN
-            and confident_enough                # ② 高置信度
-            and not openmax_alarmed             # ③ OpenMax 未报警
-            and not recon_abnormal              # ④ 重建误差低
+            (softmax_prediction == 'BENIGN')   # ① Softmax 认为这是良性
+            and confident_enough                # ② 高置信度 (≥70%)
+            and not openmax_alarmed             # ③ OpenMax 也没强烈反对
+            and not recon_abnormal              # ④ 重建误差正常
         )
 
         is_anomaly = not is_genuinely_benign
@@ -167,13 +184,14 @@ class CROSREngine:
         result = {
             'prediction': prediction,
             'predicted_class': pred_class,
-            'class_confidence': round(float(class_conf), 4),
+            'class_confidence': class_conf,           # OpenMax置信度（已知类最高分 或 unknown概率）
+            'softmax_confidence': round(float(softmax_conf), 4),  # 原始Softmax置信度
             'is_unknown': bool(is_unknown),
             'is_anomaly': bool(is_anomaly),
             'anomaly_type': anomaly_type,
             'anomaly_score': round(float(
                 0.4 * unknown_score +
-                0.4 * (1.0 - class_conf) +
+                0.4 * (1.0 - softmax_conf) +
                 0.2 * min(1.0, recon_error * 5)
             ), 4),
             'recon_error': round(float(recon_error), 6),

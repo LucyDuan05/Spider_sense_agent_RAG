@@ -1,0 +1,48 @@
+=== DDoS (known class) ===
+--- RAG query (English) ---
+Target: port 80 (HTTP), service category: web. Low packet rate: 0.18 pkts/s, not consistent with bulk data transfer. Very low throughput: 156.5 B/s, suggesting idle connection or stealth activity. Forward: 8 packets (56 bytes). Backward: 5 packets (11607 bytes). Highly variable packet sizes: mean 834B, std 2175B. Typical of human-driven interactive traffic. Long duration (75s). Traffic predominantly outbound. Possible data exfiltration or command-and-control beaconing.
+
+--- Agent context (Chinese) ---
+【目标】端口 80 (HTTP)，服务类型: Web服务。
+包速率: 0.18 pkt/s（极低，非批量传输模式）。
+带宽: 156.5 B/s（极低吞吐量，可能为空闲连接或隐蔽活动）。
+前向: 8 包 (56 B)，后向: 5 包 (11607 B)。
+包大小分布: 高度变异（均值 834 B，标准差 2175 B）。这符合人工交互流量的特征。
+流量方向: 主要为出站方向，可能存在数据外传或 C2 信标行为。
+
+=== PortScan (known class) ===
+--- RAG query ---
+Target: port 21 (FTP), service category: file_transfer. High packet rate: 3755 pkts/s. Forward: 1 packets (8 bytes). Backward: 1 packets (2 bytes). Tiny packets: mean 3B. Consistent with scanning probes, ACK/SYN handshakes, or command-and-control beacons. Push flag set, small data push (PSH). Extremely short duration (0.8ms). Consistent with port scanning, DNS query, or failed handshake. Traffic predominantly outbound. Possible data exfiltration or command-and-control beaconing.
+
+--- Agent context ---
+【目标】端口 21 (FTP)，服务类型: 文件传输。
+包速率: 3755 pkt/s（较高）。
+前向: 1 包 (8 B)，后向: 1 包 (2 B)。
+包大小: 极小（均值 3 B）。典型于扫描探测、握手包或 C2 信标。
+连接持续时间: 极短（0.8 ms），符合端口扫描、DNS 查询或握手失败的特征。
+流量方向: 主要为出站方向，可能存在数据外传或 C2 信标行为。
+
+=== Open-set: Bot (unknown to model) ===
+--- RAG query ---
+Target: port 8080 (HTTP-Alt), service category: web. Very low throughput: 0.0 B/s, suggesting idle connection or stealth activity. Forward: 1 packets (0 bytes). Backward: 1 packets (0 bytes). Tiny packets: mean 0B. Consistent with scanning probes, ACK/SYN handshakes, or command-and-control beacons. Extremely short duration (57.9ms). Consistent with port scanning, DNS query, or failed handshake.
+
+--- Agent context ---
+【目标】端口 8080 (HTTP-Alt)，服务类型: Web服务。
+带宽: 0.0 B/s（极低吞吐量，可能为空闲连接或隐蔽活动）。
+前向: 1 包 (0 B)，后向: 1 包 (0 B)。
+包大小: 极小（均值 0 B）。典型于扫描探测、握手包或 C2 信标。
+连接持续时间: 极短（57.9 ms），符合端口扫描、DNS 查询或握手失败的特征。
+
+=== Same open-set sample + UNKNOWN detection ===
+--- RAG query ---
+Target: port 8080 (HTTP-Alt), service category: web. Very low throughput: 0.0 B/s, suggesting idle connection or stealth activity. Forward: 1 packets (0 bytes). Backward: 1 packets (0 bytes). Tiny packets: mean 0B. Consistent with scanning probes, ACK/SYN handshakes, or command-and-control beacons. Extremely short duration (57.9ms). Consistent with port scanning, DNS query, or failed handshake. OpenMax verdict: UNKNOWN (open-set rejection, unknown probability 72%). This flow does not match any of the 6 trained classes. High CROSR reconstruction error (0.2300), confirming out-of-distribution pattern.
+
+--- Agent context ---
+【目标】端口 8080 (HTTP-Alt)，服务类型: Web服务。
+带宽: 0.0 B/s（极低吞吐量，可能为空闲连接或隐蔽活动）。
+前向: 1 包 (0 B)，后向: 1 包 (0 B)。
+包大小: 极小（均值 0 B）。典型于扫描探测、握手包或 C2 信标。
+连接持续时间: 极短（57.9 ms），符合端口扫描、DNS 查询或握手失败的特征。
+【OpenMax 判定】UNKNOWN（未知攻击，未知概率 72%）。该流量模式与 6 种已知攻击类别均不匹配。
+CROSR 重建误差 0.2300（超过阈值），确认该流量处于训练分布之外。
+
